@@ -1,6 +1,8 @@
 import socket
 import json
 import threading
+import time
+import uuid
 
 users = {}
 sessions = {}
@@ -17,6 +19,14 @@ def handle_client(client_socket):
             response = store_user(request['data'])
         elif operation == 'get_user':
             response = get_user(request['data'])
+        elif operation == 'store_session':
+            response = store_session(request['data'])
+        elif operation == 'get_session':
+            response = get_session(request['data'])
+        elif operation == 'update_session_activity':
+            response = update_session_activity(request['data'])
+        elif operation == 'delete_session':
+            response = delete_session(request['data'])
         else:
             response = {'status': 'error', 'message': 'Invalid operation'}
         
@@ -27,6 +37,7 @@ def handle_client(client_socket):
     finally:
         client_socket.close()
 
+        
 def store_user(user_data):
     global user_counter
     user_id = user_counter
@@ -48,6 +59,47 @@ def get_user(data):
         if user_info['username'] == username:
             return {'status': 'success', 'data': user_info}
     return {'status': 'error', 'message': 'User not found'}
+
+
+def store_session(data):
+    # data contains: user_id, user_type
+    session_id = str(uuid.uuid4())
+    sessions[session_id] = {
+        'session_id': session_id,
+        'user_id': data['user_id'],
+        'user_type': data['user_type'],
+        'last_activity': time.time()
+    }
+    return {'status': 'success', 'data': {'session_id': session_id}}
+
+def get_session(data):
+    # data contains: session_id
+    session_id = data['session_id']
+    if session_id in sessions:
+        session = sessions[session_id]
+        # Check if session expired (5 minutes = 300 seconds)
+        if time.time() - session['last_activity'] > 300:
+            del sessions[session_id]
+            return {'status': 'error', 'message': 'Session expired'}
+        return {'status': 'success', 'data': session}
+    return {'status': 'error', 'message': 'Session not found'}
+
+def update_session_activity(data):
+    # data contains: session_id
+    session_id = data['session_id']
+    if session_id in sessions:
+        sessions[session_id]['last_activity'] = time.time()
+        return {'status': 'success'}
+    return {'status': 'error', 'message': 'Session not found'}
+
+def delete_session(data):
+    # data contains: session_id
+    session_id = data['session_id']
+    if session_id in sessions:
+        del sessions[session_id]
+        return {'status': 'success'}
+    return {'status': 'error', 'message': 'Session not found'}
+
 
 def start_server(host='localhost', port=5001):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
