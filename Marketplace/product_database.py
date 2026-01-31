@@ -2,6 +2,7 @@ import socket
 import json
 import threading
 import time
+import argparse
 
 # Data storage
 items = {}  # item_id -> {item details}
@@ -191,4 +192,9 @@ def start_server(host='localhost', port=5002):
         client_thread.start()
 
 if __name__ == '__main__':
-    start_server()
+    parser = argparse.ArgumentParser(description='Product Database Server')
+    parser.add_argument('--host', default='localhost', help='Host to bind to')
+    parser.add_argument('--port', type=int, default=5002, help='Port to bind to')
+    args = parser.parse_args()
+
+    start_server(host=args.host, port=args.port)

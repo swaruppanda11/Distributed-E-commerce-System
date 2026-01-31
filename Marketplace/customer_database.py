@@ -3,6 +3,7 @@ import json
 import threading
 import time
 import uuid
+import argparse
 
 users = {}
 sessions = {}
@@ -117,4 +118,9 @@ def start_server(host='localhost', port=5001):
         client_thread.start()
 
 if __name__ == '__main__':
-    start_server()
+    parser = argparse.ArgumentParser(description='Customer Database Server')
+    parser.add_argument('--host', default='localhost', help='Host to bind to')
+    parser.add_argument('--port', type=int, default=5001, help='Port to bind to')
+    args = parser.parse_args()
+
+    start_server(host=args.host, port=args.port)

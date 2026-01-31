@@ -1,0 +1,186 @@
+================================================================================
+                    E-COMMERCE MARKETPLACE - COMMAND REFERENCE
+================================================================================
+
+--------------------------------------------------------------------------------
+1. STARTING THE SYSTEM (Run in separate terminals, in this order)
+--------------------------------------------------------------------------------
+
+Terminal 1 - Customer Database:
+    cd Marketplace
+    python customer_database.py
+
+Terminal 2 - Product Database:
+    cd Marketplace
+    python product_database.py
+
+Terminal 3 - Seller Server:
+    cd Marketplace
+    python seller_server.py
+
+Terminal 4 - Buyer Server:
+    cd Marketplace
+    python buyer_server.py
+
+--------------------------------------------------------------------------------
+2. RUNNING CLIENTS (Interactive CLI)
+--------------------------------------------------------------------------------
+
+Terminal 5 - Seller Client:
+    cd Marketplace
+    python seller_client.py
+
+Terminal 6 - Buyer Client:
+    cd Marketplace
+    python buyer_client.py
+
+--------------------------------------------------------------------------------
+3. RUNNING PERFORMANCE EVALUATION
+--------------------------------------------------------------------------------
+
+Make sure all 4 servers are running first, then:
+
+    cd Evaluation
+    python performance_evaluation.py
+
+This will run:
+  - Scenario 1: 1 seller, 1 buyer (10 iterations)
+  - Scenario 2: 10 sellers, 10 buyers (10 iterations)
+  - Scenario 3: 100 sellers, 100 buyers (10 iterations)
+
+Each client performs 1000 API calls per run.
+
+--------------------------------------------------------------------------------
+4. DISTRIBUTED DEPLOYMENT (Different Machines)
+--------------------------------------------------------------------------------
+
+If deploying on separate machines, use command-line arguments:
+
+Machine A (192.168.1.10) - Customer Database:
+    python customer_database.py --host 0.0.0.0 --port 5001
+
+Machine B (192.168.1.11) - Product Database:
+    python product_database.py --host 0.0.0.0 --port 5002
+
+Machine C (192.168.1.12) - Seller Server:
+    python seller_server.py --host 0.0.0.0 --port 5003 \
+        --customer-db-host 192.168.1.10 --customer-db-port 5001 \
+        --product-db-host 192.168.1.11 --product-db-port 5002
+
+Machine D (192.168.1.13) - Buyer Server:
+    python buyer_server.py --host 0.0.0.0 --port 5004 \
+        --customer-db-host 192.168.1.10 --customer-db-port 5001 \
+        --product-db-host 192.168.1.11 --product-db-port 5002
+
+Machine E - Seller Client:
+    python seller_client.py --host 192.168.1.12 --port 5003
+
+Machine F - Buyer Client:
+    python buyer_client.py --host 192.168.1.13 --port 5004
+
+--------------------------------------------------------------------------------
+5. DEMO WORKFLOW - SELLER
+--------------------------------------------------------------------------------
+
+1. Start seller client: python seller_client.py
+2. Create Account:
+   - Choose option 1
+   - Enter username: seller1
+   - Enter password: pass123
+   - Enter name: John Seller
+3. Login:
+   - Choose option 2
+   - Enter username: seller1
+   - Enter password: pass123
+4. Register Item:
+   - Choose option 3
+   - Item name: iPhone 15
+   - Category: 1
+   - Keywords: phone,apple,smartphone
+   - Condition: New
+   - Price: 999.99
+   - Quantity: 10
+5. Display Items:
+   - Choose option 6
+6. Logout:
+   - Choose option 1
+
+--------------------------------------------------------------------------------
+6. DEMO WORKFLOW - BUYER
+--------------------------------------------------------------------------------
+
+1. Start buyer client: python buyer_client.py
+2. Create Account:
+   - Choose option 1
+   - Enter username: buyer1
+   - Enter password: pass123
+   - Enter name: Jane Buyer
+3. Login:
+   - Choose option 2
+   - Enter username: buyer1
+   - Enter password: pass123
+4. Search Items:
+   - Choose option 2
+   - Category: 1
+   - Keywords: phone
+5. Add to Cart:
+   - Choose option 4
+   - Item ID: [1, 1]
+   - Quantity: 2
+6. Display Cart:
+   - Choose option 6
+7. Provide Feedback:
+   - Choose option 8
+   - Item ID: [1, 1]
+   - Feedback: thumbs_up
+8. Get Seller Rating:
+   - Choose option 9
+   - Seller ID: 1
+9. Logout:
+   - Choose option 1
+
+--------------------------------------------------------------------------------
+7. QUICK TEST - VERIFY SYSTEM WORKS
+--------------------------------------------------------------------------------
+
+After starting all 4 servers, run this quick check:
+
+    cd Evaluation
+    python -c "
+import socket
+import json
+
+def test(host, port, name):
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(2)
+        s.connect((host, port))
+        s.close()
+        print(f'[OK] {name} at {host}:{port}')
+    except:
+        print(f'[FAIL] {name} at {host}:{port}')
+
+test('localhost', 5001, 'Customer DB')
+test('localhost', 5002, 'Product DB')
+test('localhost', 5003, 'Seller Server')
+test('localhost', 5004, 'Buyer Server')
+"
+
+--------------------------------------------------------------------------------
+8. PORT REFERENCE
+--------------------------------------------------------------------------------
+
+Component             Default Port    Description
+--------------------- -------------- ----------------------------------
+Customer Database     5001           Stores users and sessions
+Product Database      5002           Stores items, carts, feedback
+Seller Server         5003           Handles seller API requests
+Buyer Server          5004           Handles buyer API requests
+
+--------------------------------------------------------------------------------
+9. STOPPING THE SYSTEM
+--------------------------------------------------------------------------------
+
+Press Ctrl+C in each terminal to stop the servers.
+
+================================================================================

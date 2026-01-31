@@ -1,7 +1,9 @@
 import socket
 import json
 import threading
+import argparse
 
+# Default configuration (can be overridden via command line)
 CUSTOMER_DB_HOST = 'localhost'
 CUSTOMER_DB_PORT = 5001
 PRODUCT_DB_HOST = 'localhost'
@@ -220,4 +222,19 @@ def start_server(host='localhost', port=5004):
         client_thread.start()
 
 if __name__ == '__main__':
-    start_server()
+    parser = argparse.ArgumentParser(description='Buyer Server')
+    parser.add_argument('--host', default='localhost', help='Host to bind to')
+    parser.add_argument('--port', type=int, default=5004, help='Port to bind to')
+    parser.add_argument('--customer-db-host', default='localhost', help='Customer DB host')
+    parser.add_argument('--customer-db-port', type=int, default=5001, help='Customer DB port')
+    parser.add_argument('--product-db-host', default='localhost', help='Product DB host')
+    parser.add_argument('--product-db-port', type=int, default=5002, help='Product DB port')
+    args = parser.parse_args()
+
+    # Update config
+    CUSTOMER_DB_HOST = args.customer_db_host
+    CUSTOMER_DB_PORT = args.customer_db_port
+    PRODUCT_DB_HOST = args.product_db_host
+    PRODUCT_DB_PORT = args.product_db_port
+
+    start_server(host=args.host, port=args.port)

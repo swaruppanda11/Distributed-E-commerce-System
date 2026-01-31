@@ -1,6 +1,8 @@
 import socket
 import json
+import argparse
 
+# Default configuration (can be overridden via command line)
 SERVER_HOST = 'localhost'
 SERVER_PORT = 5004
 
@@ -288,4 +290,12 @@ def main():
                 print("Invalid choice!")
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Buyer Client')
+    parser.add_argument('--host', default='localhost', help='Buyer server host')
+    parser.add_argument('--port', type=int, default=5004, help='Buyer server port')
+    args = parser.parse_args()
+
+    SERVER_HOST = args.host
+    SERVER_PORT = args.port
+
     main()
