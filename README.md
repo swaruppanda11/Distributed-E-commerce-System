@@ -35,6 +35,4 @@ python buyer_client.py
 python performance_evaluation.py
 ```
 
-## Author
 
-Swarup Panda, CU Boulder
