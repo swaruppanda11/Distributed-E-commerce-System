@@ -11,20 +11,30 @@ seller_id = None
 
 def send_request(api, payload=None):
     """Send request to seller server"""
+    global session_id, seller_id
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((SERVER_HOST, SERVER_PORT))
-    
+
     request = {
         'api': api,
         'session_id': session_id,
         'payload': payload or {}
     }
     sock.send(json.dumps(request).encode('utf-8'))
-    
+
     response = sock.recv(4096).decode('utf-8')
     sock.close()
-    
-    return json.loads(response)
+
+    result = json.loads(response)
+
+    # Auto-logout if session expired
+    if result.get('status') == 'error' and 'expired' in result.get('message', '').lower():
+        print("\n⚠ Session expired. You have been logged out automatically.")
+        session_id = None
+        seller_id = None
+
+    return result
 
 def create_account():
     print("\n=== Create Seller Account ===")
@@ -64,13 +74,15 @@ def login():
 def logout():
     global session_id, seller_id
     result = send_request('Logout')
-    
+
+    # Clear local state regardless of server response
+    session_id = None
+    seller_id = None
+
     if result['status'] == 'success':
         print("✓ Logged out successfully!")
-        session_id = None
-        seller_id = None
     else:
-        print(f"✗ Error: {result['message']}")
+        print("✓ Logged out locally (session was already expired)")
 
 def get_seller_rating():
     result = send_request('GetSellerRating')
