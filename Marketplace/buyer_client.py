@@ -67,7 +67,9 @@ def login():
     if result['status'] == 'success':
         session_id = result['data']['session_id']
         buyer_id = result['data']['buyer_id']
-        print(f"✓ Logged in successfully! Buyer ID: {buyer_id}")
+        print(f"✓ Logged in successfully!")
+        print(f"  Buyer ID: {buyer_id}")
+        print(f"  Session ID: {session_id}")
     else:
         print(f"✗ Error: {result['message']}")
 
