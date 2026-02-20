@@ -15,7 +15,7 @@ def handle_client(client_socket):
         data = client_socket.recv(4096).decode('utf-8')
         request = json.loads(data)
         operation = request.get('operation')
-
+        
         if operation == 'store_user':
             response = store_user(request['data'])
         elif operation == 'get_user':

@@ -131,34 +131,17 @@ def get_item(payload):
     response = send_to_db(PRODUCT_DB_HOST, PRODUCT_DB_PORT, 'get_item', {'item_id': payload['item_id']})
     return response
 
-def add_item_to_cart(buyer_id, payload):
-    # Get current cart
-    cart_response = send_to_db(PRODUCT_DB_HOST, PRODUCT_DB_PORT, 'get_cart', {'buyer_id': buyer_id})
-    cart = cart_response['data']
-    
-    # Check if item is available
+def add_item_to_cart(_buyer_id, payload):
+    # Only validate availability — cart is managed client-side until explicitly saved
     item_response = send_to_db(PRODUCT_DB_HOST, PRODUCT_DB_PORT, 'get_item', {'item_id': payload['item_id']})
     if item_response['status'] != 'success':
         return {'status': 'error', 'message': 'Item not found'}
-    
+
     item = item_response['data']
     if item['quantity'] < payload['quantity']:
         return {'status': 'error', 'message': 'Not enough items available'}
-    
-    # Add to cart
-    found = False
-    for cart_item in cart:
-        if cart_item['item_id'] == payload['item_id']:
-            cart_item['quantity'] += payload['quantity']
-            found = True
-            break
-    
-    if not found:
-        cart.append({'item_id': payload['item_id'], 'quantity': payload['quantity']})
-    
-    # Save cart
-    save_response = send_to_db(PRODUCT_DB_HOST, PRODUCT_DB_PORT, 'store_cart', {'buyer_id': buyer_id, 'cart': cart})
-    return save_response
+
+    return {'status': 'success', 'message': 'Item available'}
 
 def remove_item_from_cart(buyer_id, payload):
     # Get current cart
@@ -179,9 +162,9 @@ def remove_item_from_cart(buyer_id, payload):
     return save_response
 
 def save_cart(buyer_id, payload):
-    # Cart is already saved in the database, so this is essentially a no-op
-    # But we can return success to indicate the cart is persistent
-    return {'status': 'success', 'message': 'Cart is automatically saved'}
+    cart = payload.get('cart', [])
+    response = send_to_db(PRODUCT_DB_HOST, PRODUCT_DB_PORT, 'store_cart', {'buyer_id': buyer_id, 'cart': cart})
+    return response
 
 def clear_cart(buyer_id):
     response = send_to_db(PRODUCT_DB_HOST, PRODUCT_DB_PORT, 'clear_cart', {'buyer_id': buyer_id})

@@ -8,10 +8,24 @@ SERVER_PORT = 5004
 
 session_id = None
 buyer_id = None
+pending_cart = []
+
+def parse_item_id(prompt="Item ID (format: [category, item_id], e.g. [1, 1]): "):
+    """Parse a JSON item ID from user input, returning None on bad input."""
+    raw = input(prompt)
+    try:
+        item_id = json.loads(raw)
+        if not (isinstance(item_id, list) and len(item_id) == 2):
+            print("✗ Invalid format. Expected [category_int, item_int], e.g. [1, 1]")
+            return None
+        return item_id
+    except json.JSONDecodeError:
+        print("✗ Invalid format. Expected [category_int, item_int], e.g. [1, 1]")
+        return None
 
 def send_request(api, payload=None):
     """Send request to buyer server"""
-    global session_id, buyer_id
+    global session_id, buyer_id, pending_cart
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((SERVER_HOST, SERVER_PORT))
@@ -33,6 +47,7 @@ def send_request(api, payload=None):
         print("\n⚠ Session expired. You have been logged out automatically.")
         session_id = None
         buyer_id = None
+        pending_cart = []
 
     return result
 
@@ -54,19 +69,22 @@ def create_account():
         print(f"✗ Error: {result['message']}")
 
 def login():
-    global session_id, buyer_id
+    global session_id, buyer_id, pending_cart
     print("\n=== Buyer Login ===")
     username = input("Username: ")
     password = input("Password: ")
-    
+
     result = send_request('Login', {
         'username': username,
         'password': password
     })
-    
+
     if result['status'] == 'success':
         session_id = result['data']['session_id']
         buyer_id = result['data']['buyer_id']
+        # Load previously saved cart from server
+        cart_result = send_request('DisplayCart')
+        pending_cart = cart_result['data'] if cart_result['status'] == 'success' else []
         print(f"✓ Logged in successfully!")
         print(f"  Buyer ID: {buyer_id}")
         print(f"  Session ID: {session_id}")
@@ -74,12 +92,13 @@ def login():
         print(f"✗ Error: {result['message']}")
 
 def logout():
-    global session_id, buyer_id
+    global session_id, buyer_id, pending_cart
     result = send_request('Logout')
 
     # Clear local state regardless of server response
     session_id = None
     buyer_id = None
+    pending_cart = []
 
     if result['status'] == 'success':
         print("✓ Logged out successfully!")
@@ -121,9 +140,10 @@ def search_items():
 
 def get_item():
     print("\n=== Get Item Details ===")
-    item_id_str = input("Item ID (format: [category, id]): ")
-    item_id = json.loads(item_id_str)
-    
+    item_id = parse_item_id()
+    if item_id is None:
+        return
+
     result = send_request('GetItem', {'item_id': item_id})
     
     if result['status'] == 'success':
@@ -142,63 +162,75 @@ def get_item():
         print(f"✗ Error: {result['message']}")
 
 def add_to_cart():
+    global pending_cart
     print("\n=== Add Item to Cart ===")
-    item_id_str = input("Item ID (format: [category, id]): ")
-    item_id = json.loads(item_id_str)
+    item_id = parse_item_id()
+    if item_id is None:
+        return
     quantity = int(input("Quantity: "))
-    
+
+    # Validate availability on server (does not save)
     result = send_request('AddItemToCart', {
         'item_id': item_id,
         'quantity': quantity
     })
-    
+
     if result['status'] == 'success':
-        print("✓ Item added to cart!")
+        found = False
+        for cart_item in pending_cart:
+            if cart_item['item_id'] == item_id:
+                cart_item['quantity'] += quantity
+                found = True
+                break
+        if not found:
+            pending_cart.append({'item_id': item_id, 'quantity': quantity})
+        print("✓ Item added to cart! (use Save Cart to persist)")
     else:
         print(f"✗ Error: {result['message']}")
 
 def remove_from_cart():
+    global pending_cart
     print("\n=== Remove Item from Cart ===")
-    item_id_str = input("Item ID (format: [category, id]): ")
-    item_id = json.loads(item_id_str)
+    item_id = parse_item_id()
+    if item_id is None:
+        return
     quantity = int(input("Quantity: "))
-    
-    result = send_request('RemoveItemFromCart', {
-        'item_id': item_id,
-        'quantity': quantity
-    })
-    
-    if result['status'] == 'success':
-        print("✓ Item removed from cart!")
-    else:
-        print(f"✗ Error: {result['message']}")
+
+    for i, cart_item in enumerate(pending_cart):
+        if cart_item['item_id'] == item_id:
+            if cart_item['quantity'] <= quantity:
+                pending_cart.pop(i)
+            else:
+                cart_item['quantity'] -= quantity
+            print("✓ Item removed from cart! (use Save Cart to persist)")
+            return
+    print("✗ Item not found in cart.")
 
 def display_cart():
-    result = send_request('DisplayCart')
-    
+    if not pending_cart:
+        print("\nYour cart is empty.")
+    else:
+        print("\n=== Your Shopping Cart ===")
+        for cart_item in pending_cart:
+            print(f"Item ID: {cart_item['item_id']} - Quantity: {cart_item['quantity']}")
+
+def save_cart():
+    result = send_request('SaveCart', {'cart': pending_cart})
     if result['status'] == 'success':
-        cart = result['data']
-        if not cart:
-            print("\nYour cart is empty.")
-        else:
-            print("\n=== Your Shopping Cart ===")
-            for cart_item in cart:
-                print(f"Item ID: {cart_item['item_id']} - Quantity: {cart_item['quantity']}")
+        print("✓ Cart saved!")
     else:
         print(f"✗ Error: {result['message']}")
 
 def clear_cart():
-    result = send_request('ClearCart')
-    
-    if result['status'] == 'success':
-        print("✓ Cart cleared!")
-    else:
-        print(f"✗ Error: {result['message']}")
+    global pending_cart
+    pending_cart = []
+    print("✓ Cart cleared! (use Save Cart to persist)")
 
 def provide_feedback():
     print("\n=== Provide Feedback ===")
-    item_id_str = input("Item ID (format: [category, id]): ")
-    item_id = json.loads(item_id_str)
+    item_id = parse_item_id()
+    if item_id is None:
+        return
     feedback = input("Feedback (thumbs_up/thumbs_down): ")
     
     result = send_request('ProvideFeedback', {
@@ -255,10 +287,11 @@ def main():
             print("4. Add Item to Cart")
             print("5. Remove Item from Cart")
             print("6. Display Cart")
-            print("7. Clear Cart")
-            print("8. Provide Feedback")
-            print("9. Get Seller Rating")
-            print("10. View Purchase History")
+            print("7. Save Cart")
+            print("8. Clear Cart")
+            print("9. Provide Feedback")
+            print("10. Get Seller Rating")
+            print("11. View Purchase History")
             print("0. Exit")
         else:
             print("Not logged in")
@@ -293,12 +326,14 @@ def main():
             elif choice == '6':
                 display_cart()
             elif choice == '7':
-                clear_cart()
+                save_cart()
             elif choice == '8':
-                provide_feedback()
+                clear_cart()
             elif choice == '9':
-                get_seller_rating()
+                provide_feedback()
             elif choice == '10':
+                get_seller_rating()
+            elif choice == '11':
                 get_purchase_history()
             else:
                 print("Invalid choice!")
