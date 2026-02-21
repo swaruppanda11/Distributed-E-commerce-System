@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package customerdb;
+
+service CustomerDB {
+    rpc StoreUser (StoreUserRequest) returns (StoreUserResponse);
+    rpc GetUser (GetUserRequest) returns (GetUserResponse);
+    rpc StoreSession (StoreSessionRequest) returns (StoreSessionResponse);
+    rpc GetSession (GetSessionRequest) returns (GetSessionResponse);
+    rpc UpdateSessionActivity (SessionRequest) returns (StatusResponse);
+    rpc DeleteSession (SessionRequest) returns (StatusResponse);
+}
+
+message StoreUserRequest {
+    string username = 1;
+    string password = 2;
+    string name = 3;
+    string user_type = 4;
+}
+
+message StoreUserResponse {
+    string status = 1;
+    string message = 2;
+    int32 user_id = 3;
+}
+
+message GetUserRequest {
+    string username = 1;
+}
+
+message GetUserResponse {
+    string status = 1;
+    string message = 2;
+    int32 user_id = 3;
+    string username = 4;
+    string password = 5;
+    string name = 6;
+    string user_type = 7;
+}
+
+message StoreSessionRequest {
+    int32 user_id = 1;
+    string user_type = 2;
+}
+
+message StoreSessionResponse {
+    string status = 1;
+    string message = 2;
+    string session_id = 3;
+}
+
+message GetSessionRequest {
+    string session_id = 1;
+}
+
+message GetSessionResponse {
+    string status = 1;
+    string message = 2;
+    int32 user_id = 3;
+    string user_type = 4;
+    double last_activity = 5;
+}
+
+message SessionRequest {
+    string session_id = 1;
+}
+
+message StatusResponse {
+    string status = 1;
+    string message = 2;
+}

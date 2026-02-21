@@ -1,0 +1,148 @@
+syntax = "proto3";
+
+package productdb;
+
+service ProductDB {
+    rpc RegisterItem (RegisterItemRequest) returns (RegisterItemResponse);
+    rpc GetItem (ItemIdRequest) returns (GetItemResponse);
+    rpc UpdateItemPrice (UpdateItemPriceRequest) returns (StatusResponse);
+    rpc UpdateItemQuantity (UpdateItemQuantityRequest) returns (StatusResponse);
+    rpc GetSellerItems (GetSellerItemsRequest) returns (GetItemsResponse);
+    rpc SearchItems (SearchItemsRequest) returns (GetItemsResponse);
+    rpc StoreCart (StoreCartRequest) returns (StatusResponse);
+    rpc GetCart (BuyerIdRequest) returns (GetCartResponse);
+    rpc ClearCart (BuyerIdRequest) returns (StatusResponse);
+    rpc AddItemFeedback (AddItemFeedbackRequest) returns (StatusResponse);
+    rpc GetSellerRating (GetSellerRatingRequest) returns (GetSellerRatingResponse);
+    rpc MakePurchase (MakePurchaseRequest) returns (StatusResponse);
+    rpc GetBuyerPurchases (BuyerIdRequest) returns (GetBuyerPurchasesResponse);
+}
+
+message ItemId {
+    int32 category = 1;
+    int32 item_id = 2;
+}
+
+message ItemData {
+    ItemId item_id = 1;
+    int32 seller_id = 2;
+    string name = 3;
+    int32 category = 4;
+    repeated string keywords = 5;
+    string condition = 6;
+    float price = 7;
+    int32 quantity = 8;
+    int32 thumbs_up = 9;
+    int32 thumbs_down = 10;
+}
+
+message CartItem {
+    ItemId item_id = 1;
+    int32 quantity = 2;
+}
+
+message PurchaseRecord {
+    ItemId item_id = 1;
+    int32 quantity = 2;
+    string timestamp = 3;
+}
+
+message RegisterItemRequest {
+    int32 seller_id = 1;
+    string name = 2;
+    int32 category = 3;
+    repeated string keywords = 4;
+    string condition = 5;
+    float price = 6;
+    int32 quantity = 7;
+}
+
+message RegisterItemResponse {
+    string status = 1;
+    string message = 2;
+    ItemId item_id = 3;
+}
+
+message ItemIdRequest {
+    ItemId item_id = 1;
+}
+
+message GetItemResponse {
+    string status = 1;
+    string message = 2;
+    ItemData item = 3;
+}
+
+message UpdateItemPriceRequest {
+    ItemId item_id = 1;
+    float price = 2;
+}
+
+message UpdateItemQuantityRequest {
+    ItemId item_id = 1;
+    int32 quantity = 2;
+}
+
+message GetSellerItemsRequest {
+    int32 seller_id = 1;
+}
+
+message GetItemsResponse {
+    string status = 1;
+    string message = 2;
+    repeated ItemData items = 3;
+}
+
+message SearchItemsRequest {
+    int32 category = 1;
+    bool has_category = 2;
+    repeated string keywords = 3;
+}
+
+message StoreCartRequest {
+    int32 buyer_id = 1;
+    repeated CartItem cart = 2;
+}
+
+message BuyerIdRequest {
+    int32 buyer_id = 1;
+}
+
+message GetCartResponse {
+    string status = 1;
+    string message = 2;
+    repeated CartItem cart = 3;
+}
+
+message AddItemFeedbackRequest {
+    ItemId item_id = 1;
+    string feedback_type = 2;
+}
+
+message GetSellerRatingRequest {
+    int32 seller_id = 1;
+}
+
+message GetSellerRatingResponse {
+    string status = 1;
+    string message = 2;
+    int32 thumbs_up = 3;
+    int32 thumbs_down = 4;
+}
+
+message MakePurchaseRequest {
+    int32 buyer_id = 1;
+    ItemId item_id = 2;
+    int32 quantity = 3;
+}
+
+message GetBuyerPurchasesResponse {
+    string status = 1;
+    string message = 2;
+    repeated PurchaseRecord purchases = 3;
+}
+
+message StatusResponse {
+    string status = 1;
+    string message = 2;
+}

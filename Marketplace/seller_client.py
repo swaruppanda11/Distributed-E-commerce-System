@@ -1,99 +1,97 @@
-import socket
+import requests
 import json
 import argparse
 
-# Default configuration (can be overridden via command line)
 SERVER_HOST = 'localhost'
 SERVER_PORT = 5003
 
 session_id = None
 seller_id = None
 
-def send_request(api, payload=None):
-    """Send request to seller server"""
+
+def base_url():
+    return f'http://{SERVER_HOST}:{SERVER_PORT}'
+
+
+def send(method, path, data=None, params=None):
     global session_id, seller_id
+    headers = {'X-Session-ID': session_id} if session_id else {}
+    url = base_url() + path
+    try:
+        if method == 'GET':
+            resp = requests.get(url, headers=headers, params=params)
+        elif method == 'POST':
+            resp = requests.post(url, headers=headers, json=data)
+        elif method == 'PUT':
+            resp = requests.put(url, headers=headers, json=data)
+        elif method == 'DELETE':
+            resp = requests.delete(url, headers=headers)
+        result = resp.json()
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((SERVER_HOST, SERVER_PORT))
-
-    request = {
-        'api': api,
-        'session_id': session_id,
-        'payload': payload or {}
-    }
-    sock.send(json.dumps(request).encode('utf-8'))
-
-    response = sock.recv(4096).decode('utf-8')
-    sock.close()
-
-    result = json.loads(response)
-
-    # Auto-logout if session expired
     if result.get('status') == 'error' and 'expired' in result.get('message', '').lower():
-        print("\n⚠ Session expired. You have been logged out automatically.")
+        print("\nSession expired. You have been logged out automatically.")
         session_id = None
         seller_id = None
 
     return result
+
+
+def parse_item_id(prompt="Item ID (format: [category, id], e.g. [1, 1]): "):
+    raw = input(prompt)
+    try:
+        item_id = json.loads(raw)
+        if not (isinstance(item_id, list) and len(item_id) == 2):
+            print("Invalid format. Expected [category_int, item_int]")
+            return None
+        return item_id
+    except json.JSONDecodeError:
+        print("Invalid format. Expected [category_int, item_int]")
+        return None
+
 
 def create_account():
     print("\n=== Create Seller Account ===")
     username = input("Username: ")
     password = input("Password: ")
     name = input("Name: ")
-    
-    result = send_request('CreateAccount', {
-        'username': username,
-        'password': password,
-        'name': name
-    })
-    
+    result = send('POST', '/seller/account', {'username': username, 'password': password, 'name': name})
     if result['status'] == 'success':
-        print(f"✓ Account created! Your seller ID is: {result['data']['user_id']}")
+        print(f"Account created! Your seller ID is: {result['user_id']}")
     else:
-        print(f"✗ Error: {result['message']}")
+        print(f"Error: {result['message']}")
+
 
 def login():
     global session_id, seller_id
     print("\n=== Seller Login ===")
     username = input("Username: ")
     password = input("Password: ")
-    
-    result = send_request('Login', {
-        'username': username,
-        'password': password
-    })
-    
+    result = send('POST', '/seller/login', {'username': username, 'password': password})
     if result['status'] == 'success':
-        session_id = result['data']['session_id']
-        seller_id = result['data']['seller_id']
-        print(f"✓ Logged in successfully!")
-        print(f"  Seller ID: {seller_id}")
-        print(f"  Session ID: {session_id}")
+        session_id = result['session_id']
+        seller_id = result['seller_id']
+        print(f"Logged in! Seller ID: {seller_id}")
     else:
-        print(f"✗ Error: {result['message']}")
+        print(f"Error: {result['message']}")
+
 
 def logout():
     global session_id, seller_id
-    result = send_request('Logout')
-
-    # Clear local state regardless of server response
+    send('POST', '/seller/logout')
     session_id = None
     seller_id = None
+    print("Logged out.")
 
-    if result['status'] == 'success':
-        print("✓ Logged out successfully!")
-    else:
-        print("✓ Logged out locally (session was already expired)")
 
 def get_seller_rating():
-    result = send_request('GetSellerRating')
-    
+    result = send('GET', f'/seller/rating/{seller_id}')
     if result['status'] == 'success':
-        rating = result['data']
-        print(f"\nYour rating: 👍 {rating['thumbs_up']} | 👎 {rating['thumbs_down']}")
+        print(f"\nYour rating: Thumbs Up: {result['thumbs_up']} | Thumbs Down: {result['thumbs_down']}")
     else:
-        print(f"✗ Error: {result['message']}")
+        print(f"Error: {result['message']}")
+
 
 def register_item():
     print("\n=== Register Item for Sale ===")
@@ -104,58 +102,48 @@ def register_item():
     condition = input("Condition (New/Used): ")
     price = float(input("Price: "))
     quantity = int(input("Quantity: "))
-    
-    result = send_request('RegisterItemForSale', {
-        'name': name,
-        'category': category,
-        'keywords': keywords,
-        'condition': condition,
-        'price': price,
-        'quantity': quantity
+    result = send('POST', '/seller/items', {
+        'name': name, 'category': category, 'keywords': keywords,
+        'condition': condition, 'price': price, 'quantity': quantity
     })
-    
     if result['status'] == 'success':
-        print(f"✓ Item registered! Item ID: {result['data']['item_id']}")
+        print(f"Item registered! Item ID: {result['item_id']}")
     else:
-        print(f"✗ Error: {result['message']}")
+        print(f"Error: {result['message']}")
+
 
 def change_item_price():
     print("\n=== Change Item Price ===")
-    item_id_str = input("Item ID (format: [category, id]): ")
-    item_id = json.loads(item_id_str)
+    item_id = parse_item_id()
+    if item_id is None:
+        return
     new_price = float(input("New price: "))
-    
-    result = send_request('ChangeItemPrice', {
-        'item_id': item_id,
-        'price': new_price
-    })
-    
+    cat, iid = item_id
+    result = send('PUT', f'/seller/items/{cat}/{iid}/price', {'price': new_price})
     if result['status'] == 'success':
-        print("✓ Price updated successfully!")
+        print("Price updated!")
     else:
-        print(f"✗ Error: {result['message']}")
+        print(f"Error: {result['message']}")
+
 
 def update_units():
     print("\n=== Update Units for Sale ===")
-    item_id_str = input("Item ID (format: [category, id]): ")
-    item_id = json.loads(item_id_str)
+    item_id = parse_item_id()
+    if item_id is None:
+        return
     new_quantity = int(input("New quantity: "))
-    
-    result = send_request('UpdateUnitsForSale', {
-        'item_id': item_id,
-        'quantity': new_quantity
-    })
-    
+    cat, iid = item_id
+    result = send('PUT', f'/seller/items/{cat}/{iid}/quantity', {'quantity': new_quantity})
     if result['status'] == 'success':
-        print("✓ Quantity updated successfully!")
+        print("Quantity updated!")
     else:
-        print(f"✗ Error: {result['message']}")
+        print(f"Error: {result['message']}")
+
 
 def display_items():
-    result = send_request('DisplayItemsForSale')
-    
+    result = send('GET', '/seller/items')
     if result['status'] == 'success':
-        items = result['data']
+        items = result['items']
         if not items:
             print("\nNo items for sale yet.")
         else:
@@ -167,17 +155,18 @@ def display_items():
                 print(f"  Condition: {item['condition']}")
                 print(f"  Price: ${item['price']}")
                 print(f"  Quantity: {item['quantity']}")
-                print(f"  Feedback: 👍 {item['feedback']['thumbs_up']} | 👎 {item['feedback']['thumbs_down']}")
+                print(f"  Feedback: Thumbs Up: {item['thumbs_up']} | Thumbs Down: {item['thumbs_down']}")
     else:
-        print(f"✗ Error: {result['message']}")
+        print(f"Error: {result['message']}")
+
 
 def main():
     global session_id
-    
+
     print("=" * 50)
     print("    MARKETPLACE - SELLER CLIENT")
     print("=" * 50)
-    
+
     while True:
         print("\n" + "=" * 50)
         if session_id:
@@ -196,9 +185,9 @@ def main():
             print("1. Create Account")
             print("2. Login")
             print("0. Exit")
-        
+
         choice = input("\nEnter choice: ").strip()
-        
+
         if choice == '0':
             print("Goodbye!")
             break
@@ -225,10 +214,11 @@ def main():
             else:
                 print("Invalid choice!")
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Seller Client')
-    parser.add_argument('--host', default='localhost', help='Seller server host')
-    parser.add_argument('--port', type=int, default=5003, help='Seller server port')
+    parser.add_argument('--host', default='localhost')
+    parser.add_argument('--port', type=int, default=5003)
     args = parser.parse_args()
 
     SERVER_HOST = args.host

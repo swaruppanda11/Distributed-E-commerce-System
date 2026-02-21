@@ -1,8 +1,7 @@
-import socket
+import requests
 import json
 import argparse
 
-# Default configuration (can be overridden via command line)
 SERVER_HOST = 'localhost'
 SERVER_PORT = 5004
 
@@ -10,118 +9,99 @@ session_id = None
 buyer_id = None
 pending_cart = []
 
-def parse_item_id(prompt="Item ID (format: [category, item_id], e.g. [1, 1]): "):
-    """Parse a JSON item ID from user input, returning None on bad input."""
-    raw = input(prompt)
-    try:
-        item_id = json.loads(raw)
-        if not (isinstance(item_id, list) and len(item_id) == 2):
-            print("✗ Invalid format. Expected [category_int, item_int], e.g. [1, 1]")
-            return None
-        return item_id
-    except json.JSONDecodeError:
-        print("✗ Invalid format. Expected [category_int, item_int], e.g. [1, 1]")
-        return None
 
-def send_request(api, payload=None):
-    """Send request to buyer server"""
+def base_url():
+    return f'http://{SERVER_HOST}:{SERVER_PORT}'
+
+
+def send(method, path, data=None, params=None):
     global session_id, buyer_id, pending_cart
+    headers = {'X-Session-ID': session_id} if session_id else {}
+    url = base_url() + path
+    try:
+        if method == 'GET':
+            resp = requests.get(url, headers=headers, params=params)
+        elif method == 'POST':
+            resp = requests.post(url, headers=headers, json=data)
+        elif method == 'PUT':
+            resp = requests.put(url, headers=headers, json=data)
+        elif method == 'DELETE':
+            resp = requests.delete(url, headers=headers)
+        result = resp.json()
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((SERVER_HOST, SERVER_PORT))
-
-    request = {
-        'api': api,
-        'session_id': session_id,
-        'payload': payload or {}
-    }
-    sock.send(json.dumps(request).encode('utf-8'))
-
-    response = sock.recv(4096).decode('utf-8')
-    sock.close()
-
-    result = json.loads(response)
-
-    # Auto-logout if session expired
     if result.get('status') == 'error' and 'expired' in result.get('message', '').lower():
-        print("\n⚠ Session expired. You have been logged out automatically.")
+        print("\nSession expired. You have been logged out automatically.")
         session_id = None
         buyer_id = None
         pending_cart = []
 
     return result
 
+
+def parse_item_id(prompt="Item ID (format: [category, item_id], e.g. [1, 1]): "):
+    raw = input(prompt)
+    try:
+        item_id = json.loads(raw)
+        if not (isinstance(item_id, list) and len(item_id) == 2):
+            print("Invalid format. Expected [category_int, item_int]")
+            return None
+        return item_id
+    except json.JSONDecodeError:
+        print("Invalid format. Expected [category_int, item_int]")
+        return None
+
+
 def create_account():
     print("\n=== Create Buyer Account ===")
     username = input("Username: ")
     password = input("Password: ")
     name = input("Name: ")
-    
-    result = send_request('CreateAccount', {
-        'username': username,
-        'password': password,
-        'name': name
-    })
-    
+    result = send('POST', '/buyer/account', {'username': username, 'password': password, 'name': name})
     if result['status'] == 'success':
-        print(f"✓ Account created! Your buyer ID is: {result['data']['user_id']}")
+        print(f"Account created! Your buyer ID is: {result['user_id']}")
     else:
-        print(f"✗ Error: {result['message']}")
+        print(f"Error: {result['message']}")
+
 
 def login():
     global session_id, buyer_id, pending_cart
     print("\n=== Buyer Login ===")
     username = input("Username: ")
     password = input("Password: ")
-
-    result = send_request('Login', {
-        'username': username,
-        'password': password
-    })
-
+    result = send('POST', '/buyer/login', {'username': username, 'password': password})
     if result['status'] == 'success':
-        session_id = result['data']['session_id']
-        buyer_id = result['data']['buyer_id']
-        # Load previously saved cart from server
-        cart_result = send_request('DisplayCart')
-        pending_cart = cart_result['data'] if cart_result['status'] == 'success' else []
-        print(f"✓ Logged in successfully!")
-        print(f"  Buyer ID: {buyer_id}")
-        print(f"  Session ID: {session_id}")
+        session_id = result['session_id']
+        buyer_id = result['buyer_id']
+        cart_result = send('GET', '/buyer/cart')
+        pending_cart = cart_result.get('cart', []) if cart_result['status'] == 'success' else []
+        print(f"Logged in! Buyer ID: {buyer_id}")
     else:
-        print(f"✗ Error: {result['message']}")
+        print(f"Error: {result['message']}")
+
 
 def logout():
     global session_id, buyer_id, pending_cart
-    result = send_request('Logout')
-
-    # Clear local state regardless of server response
+    send('POST', '/buyer/logout')
     session_id = None
     buyer_id = None
     pending_cart = []
+    print("Logged out.")
 
-    if result['status'] == 'success':
-        print("✓ Logged out successfully!")
-    else:
-        print("✓ Logged out locally (session was already expired)")
 
 def search_items():
     print("\n=== Search Items ===")
     category_input = input("Category (integer, press Enter to skip): ")
-    category = int(category_input) if category_input else None
     keywords_input = input("Keywords (comma-separated, press Enter to skip): ")
-    keywords = [kw.strip() for kw in keywords_input.split(',')] if keywords_input else []
-    
-    payload = {}
-    if category is not None:
-        payload['category'] = category
-    if keywords:
-        payload['keywords'] = keywords
-    
-    result = send_request('SearchItemsForSale', payload)
-    
+    params = {}
+    if category_input.strip():
+        params['category'] = category_input.strip()
+    if keywords_input.strip():
+        params['keywords'] = keywords_input.strip()
+    result = send('GET', '/buyer/items', params=params)
     if result['status'] == 'success':
-        items = result['data']
+        items = result['items']
         if not items:
             print("\nNo items found.")
         else:
@@ -134,20 +114,20 @@ def search_items():
                 print(f"  Price: ${item['price']}")
                 print(f"  Quantity: {item['quantity']}")
                 print(f"  Keywords: {', '.join(item['keywords'])}")
-                print(f"  Feedback: 👍 {item['feedback']['thumbs_up']} | 👎 {item['feedback']['thumbs_down']}")
+                print(f"  Feedback: Thumbs Up: {item['thumbs_up']} | Thumbs Down: {item['thumbs_down']}")
     else:
-        print(f"✗ Error: {result['message']}")
+        print(f"Error: {result['message']}")
+
 
 def get_item():
     print("\n=== Get Item Details ===")
     item_id = parse_item_id()
     if item_id is None:
         return
-
-    result = send_request('GetItem', {'item_id': item_id})
-    
+    cat, iid = item_id
+    result = send('GET', f'/buyer/items/{cat}/{iid}')
     if result['status'] == 'success':
-        item = result['data']
+        item = result['item']
         print(f"\n=== Item Details ===")
         print(f"Item ID: {item['item_id']}")
         print(f"Name: {item['name']}")
@@ -157,9 +137,10 @@ def get_item():
         print(f"Price: ${item['price']}")
         print(f"Quantity: {item['quantity']}")
         print(f"Keywords: {', '.join(item['keywords'])}")
-        print(f"Feedback: 👍 {item['feedback']['thumbs_up']} | 👎 {item['feedback']['thumbs_down']}")
+        print(f"Feedback: Thumbs Up: {item['thumbs_up']} | Thumbs Down: {item['thumbs_down']}")
     else:
-        print(f"✗ Error: {result['message']}")
+        print(f"Error: {result['message']}")
+
 
 def add_to_cart():
     global pending_cart
@@ -168,13 +149,7 @@ def add_to_cart():
     if item_id is None:
         return
     quantity = int(input("Quantity: "))
-
-    # Validate availability on server (does not save)
-    result = send_request('AddItemToCart', {
-        'item_id': item_id,
-        'quantity': quantity
-    })
-
+    result = send('POST', '/buyer/cart/validate', {'item_id': item_id, 'quantity': quantity})
     if result['status'] == 'success':
         found = False
         for cart_item in pending_cart:
@@ -184,9 +159,10 @@ def add_to_cart():
                 break
         if not found:
             pending_cart.append({'item_id': item_id, 'quantity': quantity})
-        print("✓ Item added to cart! (use Save Cart to persist)")
+        print("Item added to cart! (use Save Cart to persist)")
     else:
-        print(f"✗ Error: {result['message']}")
+        print(f"Error: {result['message']}")
+
 
 def remove_from_cart():
     global pending_cart
@@ -195,16 +171,16 @@ def remove_from_cart():
     if item_id is None:
         return
     quantity = int(input("Quantity: "))
-
     for i, cart_item in enumerate(pending_cart):
         if cart_item['item_id'] == item_id:
             if cart_item['quantity'] <= quantity:
                 pending_cart.pop(i)
             else:
                 cart_item['quantity'] -= quantity
-            print("✓ Item removed from cart! (use Save Cart to persist)")
+            print("Item removed from cart! (use Save Cart to persist)")
             return
-    print("✗ Item not found in cart.")
+    print("Item not found in cart.")
+
 
 def display_cart():
     if not pending_cart:
@@ -214,17 +190,20 @@ def display_cart():
         for cart_item in pending_cart:
             print(f"Item ID: {cart_item['item_id']} - Quantity: {cart_item['quantity']}")
 
+
 def save_cart():
-    result = send_request('SaveCart', {'cart': pending_cart})
+    result = send('PUT', '/buyer/cart', {'cart': pending_cart})
     if result['status'] == 'success':
-        print("✓ Cart saved!")
+        print("Cart saved!")
     else:
-        print(f"✗ Error: {result['message']}")
+        print(f"Error: {result['message']}")
+
 
 def clear_cart():
     global pending_cart
     pending_cart = []
-    print("✓ Cart cleared! (use Save Cart to persist)")
+    print("Cart cleared! (use Save Cart to persist)")
+
 
 def provide_feedback():
     print("\n=== Provide Feedback ===")
@@ -232,76 +211,96 @@ def provide_feedback():
     if item_id is None:
         return
     feedback = input("Feedback (thumbs_up/thumbs_down): ")
-    
-    result = send_request('ProvideFeedback', {
-        'item_id': item_id,
-        'feedback_type': feedback
-    })
-    
+    result = send('POST', '/buyer/feedback', {'item_id': item_id, 'feedback_type': feedback})
     if result['status'] == 'success':
-        print("✓ Feedback submitted!")
+        print("Feedback submitted!")
     else:
-        print(f"✗ Error: {result['message']}")
+        print(f"Error: {result['message']}")
+
 
 def get_seller_rating():
     print("\n=== Get Seller Rating ===")
-    seller_id = int(input("Seller ID: "))
-    
-    result = send_request('GetSellerRating', {'seller_id': seller_id})
-    
+    sid = int(input("Seller ID: "))
+    result = send('GET', f'/buyer/seller/{sid}/rating')
     if result['status'] == 'success':
-        rating = result['data']
-        print(f"\nSeller {seller_id} rating: 👍 {rating['thumbs_up']} | 👎 {rating['thumbs_down']}")
+        print(f"\nSeller {sid} rating: Thumbs Up: {result['thumbs_up']} | Thumbs Down: {result['thumbs_down']}")
     else:
-        print(f"✗ Error: {result['message']}")
+        print(f"Error: {result['message']}")
+
+
+def make_purchase():
+    print("\n=== Make Purchase ===")
+    item_id = parse_item_id()
+    if item_id is None:
+        return
+    quantity = int(input("Quantity: "))
+    print("Enter payment details:")
+    name = input("Cardholder name: ")
+    card_number = input("Card number: ")
+    expiration_date = input("Expiration date (MM/YY): ")
+    security_code = input("Security code: ")
+    result = send('POST', '/buyer/purchase', {
+        'item_id': item_id,
+        'quantity': quantity,
+        'name': name,
+        'card_number': card_number,
+        'expiration_date': expiration_date,
+        'security_code': security_code
+    })
+    if result['status'] == 'success':
+        print("Purchase successful!")
+    else:
+        print(f"Error: {result['message']}")
+
 
 def get_purchase_history():
-    result = send_request('GetBuyerPurchases')
-    
+    result = send('GET', '/buyer/purchases')
     if result['status'] == 'success':
-        purchases = result['data']
+        purchases = result['purchases']
         if not purchases:
             print("\nNo purchase history yet.")
         else:
             print("\n=== Purchase History ===")
-            for item_id in purchases:
-                print(f"Item ID: {item_id}")
+            for p in purchases:
+                print(f"Item ID: {p['item_id']} | Qty: {p['quantity']} | Time: {p['timestamp']}")
     else:
-        print(f"✗ Error: {result['message']}")
+        print(f"Error: {result['message']}")
+
 
 def main():
     global session_id
-    
+
     print("=" * 50)
     print("    MARKETPLACE - BUYER CLIENT")
     print("=" * 50)
-    
+
     while True:
         print("\n" + "=" * 50)
         if session_id:
             print(f"Logged in as Buyer ID: {buyer_id}")
             print("=" * 50)
-            print("1. Logout")
-            print("2. Search Items")
-            print("3. Get Item Details")
-            print("4. Add Item to Cart")
-            print("5. Remove Item from Cart")
-            print("6. Display Cart")
-            print("7. Save Cart")
-            print("8. Clear Cart")
-            print("9. Provide Feedback")
+            print("1.  Logout")
+            print("2.  Search Items")
+            print("3.  Get Item Details")
+            print("4.  Add Item to Cart")
+            print("5.  Remove Item from Cart")
+            print("6.  Display Cart")
+            print("7.  Save Cart")
+            print("8.  Clear Cart")
+            print("9.  Provide Feedback")
             print("10. Get Seller Rating")
-            print("11. View Purchase History")
-            print("0. Exit")
+            print("11. Make Purchase")
+            print("12. View Purchase History")
+            print("0.  Exit")
         else:
             print("Not logged in")
             print("=" * 50)
             print("1. Create Account")
             print("2. Login")
             print("0. Exit")
-        
+
         choice = input("\nEnter choice: ").strip()
-        
+
         if choice == '0':
             print("Goodbye!")
             break
@@ -334,14 +333,17 @@ def main():
             elif choice == '10':
                 get_seller_rating()
             elif choice == '11':
+                make_purchase()
+            elif choice == '12':
                 get_purchase_history()
             else:
                 print("Invalid choice!")
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Buyer Client')
-    parser.add_argument('--host', default='localhost', help='Buyer server host')
-    parser.add_argument('--port', type=int, default=5004, help='Buyer server port')
+    parser.add_argument('--host', default='localhost')
+    parser.add_argument('--port', type=int, default=5004)
     args = parser.parse_args()
 
     SERVER_HOST = args.host

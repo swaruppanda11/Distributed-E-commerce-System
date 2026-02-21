@@ -1,200 +1,361 @@
-import socket
-import json
+import grpc
+import sqlite3
 import threading
-import time
 import argparse
+from concurrent import futures
+from datetime import datetime
 
-# Data storage
-items = {}  # item_id -> {item details}
-item_counter = 1
-seller_feedback = {}  # seller_id -> {thumbs_up, thumbs_down}
-item_feedback = {}  # item_id -> {thumbs_up, thumbs_down}
-carts = {}  # buyer_id -> [{item_id, quantity}, ...]
+import sys
+import os
+sys.path.insert(0, os.path.dirname(__file__))
 
-def handle_client(client_socket):
-    try:
-        data = client_socket.recv(4096).decode('utf-8')
-        request = json.loads(data)
-        operation = request.get('operation')
-        
-        if operation == 'register_item':
-            response = register_item(request['data'])
-        elif operation == 'get_item':
-            response = get_item(request['data'])
-        elif operation == 'update_item_price':
-            response = update_item_price(request['data'])
-        elif operation == 'update_item_quantity':
-            response = update_item_quantity(request['data'])
-        elif operation == 'get_seller_items':
-            response = get_seller_items(request['data'])
-        elif operation == 'search_items':
-            response = search_items(request['data'])
-        elif operation == 'store_cart':
-            response = store_cart(request['data'])
-        elif operation == 'get_cart':
-            response = get_cart(request['data'])
-        elif operation == 'clear_cart':
-            response = clear_cart(request['data'])
-        elif operation == 'add_item_feedback':
-            response = add_item_feedback(request['data'])
-        elif operation == 'get_seller_rating':
-            response = get_seller_rating(request['data'])
-        else:
-            response = {'status': 'error', 'message': 'Invalid operation'}
-        
-        client_socket.send(json.dumps(response).encode('utf-8'))
-    except Exception as e:
-        error_response = {'status': 'error', 'message': str(e)}
-        client_socket.send(json.dumps(error_response).encode('utf-8'))
-    finally:
-        client_socket.close()
+import product_db_pb2
+import product_db_pb2_grpc
 
-def register_item(data):
-    global item_counter
-    item_id = (data['category'], item_counter)
-    item_counter += 1
-    
-    items[item_id] = {
-        'item_id': item_id,
-        'seller_id': data['seller_id'],
-        'name': data['name'],
-        'category': data['category'],
-        'keywords': data.get('keywords', []),
-        'condition': data['condition'],
-        'price': data['price'],
-        'quantity': data['quantity']
-    }
-    
-    # Initialize item feedback
-    item_feedback[item_id] = {'thumbs_up': 0, 'thumbs_down': 0}
-    
-    # Initialize seller feedback if needed
-    if data['seller_id'] not in seller_feedback:
-        seller_feedback[data['seller_id']] = {'thumbs_up': 0, 'thumbs_down': 0}
-    
-    return {'status': 'success', 'data': {'item_id': list(item_id)}}
+DB_FILE = 'product_data.db'
+db_lock = threading.Lock()
 
-def get_item(data):
-    item_id = tuple(data['item_id'])
-    if item_id in items:
-        item = items[item_id].copy()
-        item['item_id'] = list(item['item_id'])
-        item['feedback'] = item_feedback.get(item_id, {'thumbs_up': 0, 'thumbs_down': 0})
-        return {'status': 'success', 'data': item}
-    return {'status': 'error', 'message': 'Item not found'}
 
-def update_item_price(data):
-    item_id = tuple(data['item_id'])
-    if item_id in items:
-        items[item_id]['price'] = data['price']
-        return {'status': 'success'}
-    return {'status': 'error', 'message': 'Item not found'}
+def get_connection():
+    return sqlite3.connect(DB_FILE, check_same_thread=False)
 
-def update_item_quantity(data):
-    item_id = tuple(data['item_id'])
-    if item_id in items:
-        items[item_id]['quantity'] = data['quantity']
-        return {'status': 'success'}
-    return {'status': 'error', 'message': 'Item not found'}
 
-def get_seller_items(data):
-    seller_id = data['seller_id']
-    seller_items = []
-    for item_id, item in items.items():
-        if item['seller_id'] == seller_id:
-            item_copy = item.copy()
-            item_copy['item_id'] = list(item_copy['item_id'])
-            item_copy['feedback'] = item_feedback.get(item_id, {'thumbs_up': 0, 'thumbs_down': 0})
-            seller_items.append(item_copy)
-    return {'status': 'success', 'data': seller_items}
+def init_db():
+    with db_lock:
+        conn = get_connection()
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS items (
+                category    INTEGER NOT NULL,
+                item_id     INTEGER NOT NULL,
+                seller_id   INTEGER NOT NULL,
+                name        TEXT NOT NULL,
+                keywords    TEXT NOT NULL,
+                condition   TEXT NOT NULL,
+                price       REAL NOT NULL,
+                quantity    INTEGER NOT NULL,
+                thumbs_up   INTEGER DEFAULT 0,
+                thumbs_down INTEGER DEFAULT 0,
+                PRIMARY KEY (category, item_id)
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS item_counter (
+                id      INTEGER PRIMARY KEY,
+                counter INTEGER NOT NULL DEFAULT 0
+            )
+        ''')
+        conn.execute('INSERT OR IGNORE INTO item_counter (id, counter) VALUES (1, 0)')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS carts (
+                buyer_id INTEGER NOT NULL,
+                category INTEGER NOT NULL,
+                item_id  INTEGER NOT NULL,
+                quantity INTEGER NOT NULL,
+                PRIMARY KEY (buyer_id, category, item_id)
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS seller_feedback (
+                seller_id   INTEGER PRIMARY KEY,
+                thumbs_up   INTEGER DEFAULT 0,
+                thumbs_down INTEGER DEFAULT 0
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS purchases (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                buyer_id  INTEGER NOT NULL,
+                category  INTEGER NOT NULL,
+                item_id   INTEGER NOT NULL,
+                quantity  INTEGER NOT NULL,
+                timestamp TEXT NOT NULL
+            )
+        ''')
+        conn.commit()
+        conn.close()
 
-def search_items(data):
-    category = data.get('category')
-    keywords = data.get('keywords', [])
-    
-    results = []
-    for item_id, item in items.items():
-        if item['quantity'] <= 0:
-            continue
-        
-        if category is not None and item['category'] != category:
-            continue
-        
-        if keywords:
-            keyword_match = False
-            for kw in keywords:
-                if kw.lower() in [k.lower() for k in item['keywords']]:
-                    keyword_match = True
-                    break
-            if not keyword_match:
-                continue
-        
-        item_copy = item.copy()
-        item_copy['item_id'] = list(item_copy['item_id'])
-        item_copy['feedback'] = item_feedback.get(item_id, {'thumbs_up': 0, 'thumbs_down': 0})
-        results.append(item_copy)
-    
-    return {'status': 'success', 'data': results}
 
-def store_cart(data):
-    buyer_id = data['buyer_id']
-    cart = data['cart']
-    carts[buyer_id] = cart
-    return {'status': 'success'}
+def _next_item_id(conn):
+    conn.execute('UPDATE item_counter SET counter = counter + 1 WHERE id = 1')
+    row = conn.execute('SELECT counter FROM item_counter WHERE id = 1').fetchone()
+    return row[0]
 
-def get_cart(data):
-    buyer_id = data['buyer_id']
-    cart = carts.get(buyer_id, [])
-    return {'status': 'success', 'data': cart}
 
-def clear_cart(data):
-    buyer_id = data['buyer_id']
-    if buyer_id in carts:
-        del carts[buyer_id]
-    return {'status': 'success'}
+def _row_to_item(row):
+    cat, iid, seller_id, name, kw_str, condition, price, quantity, thumbs_up, thumbs_down = row
+    keywords = kw_str.split(',') if kw_str else []
+    return product_db_pb2.ItemData(
+        item_id=product_db_pb2.ItemId(category=cat, item_id=iid),
+        seller_id=seller_id,
+        name=name,
+        category=cat,
+        keywords=keywords,
+        condition=condition,
+        price=price,
+        quantity=quantity,
+        thumbs_up=thumbs_up,
+        thumbs_down=thumbs_down
+    )
 
-def add_item_feedback(data):
-    item_id = tuple(data['item_id'])
-    feedback_type = data['feedback_type']
-    
-    if item_id not in items:
-        return {'status': 'error', 'message': 'Item not found'}
-    
-    if item_id not in item_feedback:
-        item_feedback[item_id] = {'thumbs_up': 0, 'thumbs_down': 0}
-    item_feedback[item_id][feedback_type] += 1
-    
-    seller_id = items[item_id]['seller_id']
-    if seller_id not in seller_feedback:
-        seller_feedback[seller_id] = {'thumbs_up': 0, 'thumbs_down': 0}
-    seller_feedback[seller_id][feedback_type] += 1
-    
-    return {'status': 'success'}
 
-def get_seller_rating(data):
-    seller_id = data['seller_id']
-    rating = seller_feedback.get(seller_id, {'thumbs_up': 0, 'thumbs_down': 0})
-    return {'status': 'success', 'data': rating}
+class ProductDBServicer(product_db_pb2_grpc.ProductDBServicer):
 
-def start_server(host='localhost', port=5002):
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_socket.bind((host, port))
-    server_socket.listen(5)
-    
-    print(f"Product Database listening on {host}:{port}")
-    
-    while True:
-        client_socket, addr = server_socket.accept()
-        print(f"Connection from {addr}")
-        
-        client_thread = threading.Thread(target=handle_client, args=(client_socket,))
-        client_thread.start()
+    def RegisterItem(self, request, context):
+        with db_lock:
+            conn = get_connection()
+            try:
+                new_id = _next_item_id(conn)
+                kw_str = ','.join(request.keywords)
+                conn.execute(
+                    'INSERT INTO items (category, item_id, seller_id, name, keywords, condition, price, quantity) '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    (request.category, new_id, request.seller_id, request.name,
+                     kw_str, request.condition, request.price, request.quantity)
+                )
+                conn.execute('INSERT OR IGNORE INTO seller_feedback (seller_id) VALUES (?)', (request.seller_id,))
+                conn.commit()
+                item_id = product_db_pb2.ItemId(category=request.category, item_id=new_id)
+                return product_db_pb2.RegisterItemResponse(status='success', message='', item_id=item_id)
+            finally:
+                conn.close()
+
+    def GetItem(self, request, context):
+        with db_lock:
+            conn = get_connection()
+            try:
+                row = conn.execute(
+                    'SELECT category, item_id, seller_id, name, keywords, condition, price, quantity, '
+                    'thumbs_up, thumbs_down FROM items WHERE category = ? AND item_id = ?',
+                    (request.item_id.category, request.item_id.item_id)
+                ).fetchone()
+                if row is None:
+                    return product_db_pb2.GetItemResponse(status='error', message='Item not found')
+                return product_db_pb2.GetItemResponse(status='success', message='', item=_row_to_item(row))
+            finally:
+                conn.close()
+
+    def UpdateItemPrice(self, request, context):
+        with db_lock:
+            conn = get_connection()
+            try:
+                conn.execute(
+                    'UPDATE items SET price = ? WHERE category = ? AND item_id = ?',
+                    (request.price, request.item_id.category, request.item_id.item_id)
+                )
+                conn.commit()
+                return product_db_pb2.StatusResponse(status='success', message='')
+            finally:
+                conn.close()
+
+    def UpdateItemQuantity(self, request, context):
+        with db_lock:
+            conn = get_connection()
+            try:
+                conn.execute(
+                    'UPDATE items SET quantity = ? WHERE category = ? AND item_id = ?',
+                    (request.quantity, request.item_id.category, request.item_id.item_id)
+                )
+                conn.commit()
+                return product_db_pb2.StatusResponse(status='success', message='')
+            finally:
+                conn.close()
+
+    def GetSellerItems(self, request, context):
+        with db_lock:
+            conn = get_connection()
+            try:
+                rows = conn.execute(
+                    'SELECT category, item_id, seller_id, name, keywords, condition, price, quantity, '
+                    'thumbs_up, thumbs_down FROM items WHERE seller_id = ?',
+                    (request.seller_id,)
+                ).fetchall()
+                items = [_row_to_item(r) for r in rows]
+                return product_db_pb2.GetItemsResponse(status='success', message='', items=items)
+            finally:
+                conn.close()
+
+    def SearchItems(self, request, context):
+        with db_lock:
+            conn = get_connection()
+            try:
+                rows = conn.execute(
+                    'SELECT category, item_id, seller_id, name, keywords, condition, price, quantity, '
+                    'thumbs_up, thumbs_down FROM items WHERE quantity > 0'
+                ).fetchall()
+                results = []
+                for row in rows:
+                    cat, iid, seller_id, name, kw_str, condition, price, qty, tu, td = row
+                    if request.has_category and cat != request.category:
+                        continue
+                    keywords = kw_str.split(',') if kw_str else []
+                    if request.keywords:
+                        kw_lower = [k.lower() for k in keywords]
+                        if not any(k.lower() in kw_lower for k in request.keywords):
+                            continue
+                    results.append(_row_to_item(row))
+                return product_db_pb2.GetItemsResponse(status='success', message='', items=results)
+            finally:
+                conn.close()
+
+    def StoreCart(self, request, context):
+        with db_lock:
+            conn = get_connection()
+            try:
+                conn.execute('DELETE FROM carts WHERE buyer_id = ?', (request.buyer_id,))
+                for cart_item in request.cart:
+                    conn.execute(
+                        'INSERT INTO carts (buyer_id, category, item_id, quantity) VALUES (?, ?, ?, ?)',
+                        (request.buyer_id, cart_item.item_id.category, cart_item.item_id.item_id, cart_item.quantity)
+                    )
+                conn.commit()
+                return product_db_pb2.StatusResponse(status='success', message='')
+            finally:
+                conn.close()
+
+    def GetCart(self, request, context):
+        with db_lock:
+            conn = get_connection()
+            try:
+                rows = conn.execute(
+                    'SELECT category, item_id, quantity FROM carts WHERE buyer_id = ?',
+                    (request.buyer_id,)
+                ).fetchall()
+                cart = [
+                    product_db_pb2.CartItem(
+                        item_id=product_db_pb2.ItemId(category=r[0], item_id=r[1]),
+                        quantity=r[2]
+                    )
+                    for r in rows
+                ]
+                return product_db_pb2.GetCartResponse(status='success', message='', cart=cart)
+            finally:
+                conn.close()
+
+    def ClearCart(self, request, context):
+        with db_lock:
+            conn = get_connection()
+            try:
+                conn.execute('DELETE FROM carts WHERE buyer_id = ?', (request.buyer_id,))
+                conn.commit()
+                return product_db_pb2.StatusResponse(status='success', message='')
+            finally:
+                conn.close()
+
+    def AddItemFeedback(self, request, context):
+        with db_lock:
+            conn = get_connection()
+            try:
+                row = conn.execute(
+                    'SELECT seller_id FROM items WHERE category = ? AND item_id = ?',
+                    (request.item_id.category, request.item_id.item_id)
+                ).fetchone()
+                if row is None:
+                    return product_db_pb2.StatusResponse(status='error', message='Item not found')
+                seller_id = row[0]
+                if request.feedback_type == 'thumbs_up':
+                    conn.execute(
+                        'UPDATE items SET thumbs_up = thumbs_up + 1 WHERE category = ? AND item_id = ?',
+                        (request.item_id.category, request.item_id.item_id)
+                    )
+                    conn.execute(
+                        'UPDATE seller_feedback SET thumbs_up = thumbs_up + 1 WHERE seller_id = ?',
+                        (seller_id,)
+                    )
+                else:
+                    conn.execute(
+                        'UPDATE items SET thumbs_down = thumbs_down + 1 WHERE category = ? AND item_id = ?',
+                        (request.item_id.category, request.item_id.item_id)
+                    )
+                    conn.execute(
+                        'UPDATE seller_feedback SET thumbs_down = thumbs_down + 1 WHERE seller_id = ?',
+                        (seller_id,)
+                    )
+                conn.commit()
+                return product_db_pb2.StatusResponse(status='success', message='')
+            finally:
+                conn.close()
+
+    def GetSellerRating(self, request, context):
+        with db_lock:
+            conn = get_connection()
+            try:
+                row = conn.execute(
+                    'SELECT thumbs_up, thumbs_down FROM seller_feedback WHERE seller_id = ?',
+                    (request.seller_id,)
+                ).fetchone()
+                if row is None:
+                    return product_db_pb2.GetSellerRatingResponse(
+                        status='success', message='', thumbs_up=0, thumbs_down=0
+                    )
+                return product_db_pb2.GetSellerRatingResponse(
+                    status='success', message='', thumbs_up=row[0], thumbs_down=row[1]
+                )
+            finally:
+                conn.close()
+
+    def MakePurchase(self, request, context):
+        with db_lock:
+            conn = get_connection()
+            try:
+                row = conn.execute(
+                    'SELECT quantity FROM items WHERE category = ? AND item_id = ?',
+                    (request.item_id.category, request.item_id.item_id)
+                ).fetchone()
+                if row is None:
+                    return product_db_pb2.StatusResponse(status='error', message='Item not found')
+                if row[0] < request.quantity:
+                    return product_db_pb2.StatusResponse(status='error', message='Not enough stock')
+                conn.execute(
+                    'UPDATE items SET quantity = quantity - ? WHERE category = ? AND item_id = ?',
+                    (request.quantity, request.item_id.category, request.item_id.item_id)
+                )
+                timestamp = datetime.utcnow().isoformat()
+                conn.execute(
+                    'INSERT INTO purchases (buyer_id, category, item_id, quantity, timestamp) VALUES (?, ?, ?, ?, ?)',
+                    (request.buyer_id, request.item_id.category, request.item_id.item_id,
+                     request.quantity, timestamp)
+                )
+                conn.commit()
+                return product_db_pb2.StatusResponse(status='success', message='')
+            finally:
+                conn.close()
+
+    def GetBuyerPurchases(self, request, context):
+        with db_lock:
+            conn = get_connection()
+            try:
+                rows = conn.execute(
+                    'SELECT category, item_id, quantity, timestamp FROM purchases WHERE buyer_id = ?',
+                    (request.buyer_id,)
+                ).fetchall()
+                purchases = [
+                    product_db_pb2.PurchaseRecord(
+                        item_id=product_db_pb2.ItemId(category=r[0], item_id=r[1]),
+                        quantity=r[2],
+                        timestamp=r[3]
+                    )
+                    for r in rows
+                ]
+                return product_db_pb2.GetBuyerPurchasesResponse(
+                    status='success', message='', purchases=purchases
+                )
+            finally:
+                conn.close()
+
+
+def serve(host='0.0.0.0', port=50052):
+    init_db()
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    product_db_pb2_grpc.add_ProductDBServicer_to_server(ProductDBServicer(), server)
+    server.add_insecure_port(f'{host}:{port}')
+    server.start()
+    print(f'Product Database gRPC server listening on {host}:{port}')
+    server.wait_for_termination()
+
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Product Database Server')
-    parser.add_argument('--host', default='localhost', help='Host to bind to')
-    parser.add_argument('--port', type=int, default=5002, help='Port to bind to')
+    parser = argparse.ArgumentParser(description='Product Database gRPC Server')
+    parser.add_argument('--host', default='0.0.0.0')
+    parser.add_argument('--port', type=int, default=50052)
     args = parser.parse_args()
-
-    start_server(host=args.host, port=args.port)
+    serve(host=args.host, port=args.port)

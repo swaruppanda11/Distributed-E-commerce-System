@@ -1,186 +1,162 @@
 ================================================================================
-                    E-COMMERCE MARKETPLACE - COMMAND REFERENCE
+              E-COMMERCE MARKETPLACE - PA2 COMMAND REFERENCE
 ================================================================================
 
+GCP VM IPs (project: ecommerce-pa2-2026, zone: us-central1-a)
+  customer-db   : 34.67.115.201   (gRPC  port 50051)
+  product-db    : 35.222.178.52   (gRPC  port 50052)
+  seller-server : 136.116.235.76  (REST  port 5003)
+  buyer-server  : 34.172.181.121  (REST  port 5004)
+  financial svc : localhost on buyer-server VM (SOAP port 8000)
+
 --------------------------------------------------------------------------------
-1. STARTING THE SYSTEM (Run in separate terminals, in this order)
+1. FIRST-TIME SETUP (local machine)
 --------------------------------------------------------------------------------
 
-Terminal 1 - Customer Database:
     cd Marketplace
-    python customer_database.py
+    pip install -r requirements.txt
+    python -m grpc_tools.protoc -I proto --python_out=. --grpc_python_out=. \
+        proto/customer_db.proto proto/product_db.proto
 
-Terminal 2 - Product Database:
+--------------------------------------------------------------------------------
+2. RUNNING CLIENTS (connect to GCP cloud servers)
+--------------------------------------------------------------------------------
+
     cd Marketplace
-    python product_database.py
+    python seller_client.py --host 136.116.235.76 --port 5003
+    python buyer_client.py  --host 34.172.181.121 --port 5004
 
-Terminal 3 - Seller Server:
+--------------------------------------------------------------------------------
+3. LOCAL DEPLOYMENT (all on one machine, for testing)
+--------------------------------------------------------------------------------
+
+Start in this order (separate terminals):
+
+    python financial_service.py                          # SOAP  :8000
+    python customer_database.py                          # gRPC  :50051
+    python product_database.py                           # gRPC  :50052
+    python seller_server.py                              # REST  :5003
+    python buyer_server.py --financial-host localhost    # REST  :5004
+
+    python seller_client.py   # default localhost:5003
+    python buyer_client.py    # default localhost:5004
+
+--------------------------------------------------------------------------------
+4. CLOUD DEPLOYMENT (GCP) - SSH into each VM
+--------------------------------------------------------------------------------
+
+    gcloud compute ssh customer-db   --zone=us-central1-a --project=ecommerce-pa2-2026
+    gcloud compute ssh product-db    --zone=us-central1-a --project=ecommerce-pa2-2026
+    gcloud compute ssh seller-server --zone=us-central1-a --project=ecommerce-pa2-2026
+    gcloud compute ssh buyer-server  --zone=us-central1-a --project=ecommerce-pa2-2026
+
+Start services (already running via nohup):
+
+    # On customer-db VM:
+    nohup ~/Marketplace/venv/bin/python ~/Marketplace/customer_database.py \
+        --host 0.0.0.0 --port 50051 </dev/null >> ~/customer_db.log 2>&1 &
+
+    # On product-db VM:
+    nohup ~/Marketplace/venv/bin/python ~/Marketplace/product_database.py \
+        --host 0.0.0.0 --port 50052 </dev/null >> ~/product_db.log 2>&1 &
+
+    # On seller-server VM:
+    nohup ~/Marketplace/venv/bin/python ~/Marketplace/seller_server.py \
+        --host 0.0.0.0 --port 5003 \
+        --customer-db-host 34.67.115.201 --customer-db-port 50051 \
+        --product-db-host  35.222.178.52  --product-db-port  50052 \
+        </dev/null >> ~/seller_server.log 2>&1 &
+
+    # On buyer-server VM (financial service first):
+    nohup ~/Marketplace/venv/bin/python ~/Marketplace/financial_service.py \
+        --host 0.0.0.0 --port 8000 </dev/null >> ~/financial.log 2>&1 &
+
+    nohup ~/Marketplace/venv/bin/python ~/Marketplace/buyer_server.py \
+        --host 0.0.0.0 --port 5004 \
+        --customer-db-host 34.67.115.201 --customer-db-port 50051 \
+        --product-db-host  35.222.178.52  --product-db-port  50052 \
+        --financial-host localhost --financial-port 8000 \
+        </dev/null >> ~/buyer_server.log 2>&1 &
+
+--------------------------------------------------------------------------------
+5. PERFORMANCE BENCHMARK
+--------------------------------------------------------------------------------
+
     cd Marketplace
-    python seller_server.py
+    # Full benchmark (all 3 scenarios, 10 runs, 1000 calls each):
+    .venv/bin/python benchmark.py --scenarios 1 2 3 --runs 10 --calls 1000
 
-Terminal 4 - Buyer Server:
-    cd Marketplace
-    python buyer_server.py
+    # Quick test (scenario 1 only, 1 run, 10 calls):
+    .venv/bin/python benchmark.py --scenarios 1 --runs 1 --calls 10
 
---------------------------------------------------------------------------------
-2. RUNNING CLIENTS (Interactive CLI)
---------------------------------------------------------------------------------
+    # Point at different servers:
+    .venv/bin/python benchmark.py \
+        --seller-url http://136.116.235.76:5003 \
+        --buyer-url  http://34.172.181.121:5004
 
-Terminal 5 - Seller Client:
-    cd Marketplace
-    python seller_client.py
-
-Terminal 6 - Buyer Client:
-    cd Marketplace
-    python buyer_client.py
+    Results saved to: benchmark_results.json
 
 --------------------------------------------------------------------------------
-3. RUNNING PERFORMANCE EVALUATION
+6. VERIFY CLOUD SERVICES ARE RUNNING
 --------------------------------------------------------------------------------
 
-Make sure all 4 servers are running first, then:
+    # Quick REST health check:
+    curl http://136.116.235.76:5003/seller/account   # should return 405 (POST only)
+    curl http://34.172.181.121:5004/buyer/account    # should return 405 (POST only)
 
-    cd Evaluation
-    python performance_evaluation.py
+    # Check running processes on a VM:
+    gcloud compute ssh buyer-server --zone=us-central1-a --project=ecommerce-pa2-2026 \
+        -- -T "ps aux | grep python | grep -v grep"
 
-This will run:
-  - Scenario 1: 1 seller, 1 buyer (10 iterations)
-  - Scenario 2: 10 sellers, 10 buyers (10 iterations)
-  - Scenario 3: 100 sellers, 100 buyers (10 iterations)
-
-Each client performs 1000 API calls per run.
-
---------------------------------------------------------------------------------
-4. DISTRIBUTED DEPLOYMENT (Different Machines)
---------------------------------------------------------------------------------
-
-If deploying on separate machines, use command-line arguments:
-
-Machine A (192.168.1.10) - Customer Database:
-    python customer_database.py --host 0.0.0.0 --port 5001
-
-Machine B (192.168.1.11) - Product Database:
-    python product_database.py --host 0.0.0.0 --port 5002
-
-Machine C (192.168.1.12) - Seller Server:
-    python seller_server.py --host 0.0.0.0 --port 5003 \
-        --customer-db-host 192.168.1.10 --customer-db-port 5001 \
-        --product-db-host 192.168.1.11 --product-db-port 5002
-
-Machine D (192.168.1.13) - Buyer Server:
-    python buyer_server.py --host 0.0.0.0 --port 5004 \
-        --customer-db-host 192.168.1.10 --customer-db-port 5001 \
-        --product-db-host 192.168.1.11 --product-db-port 5002
-
-Machine E - Seller Client:
-    python seller_client.py --host 192.168.1.12 --port 5003
-
-Machine F - Buyer Client:
-    python buyer_client.py --host 192.168.1.13 --port 5004
+    # Tail logs:
+    gcloud compute ssh seller-server --zone=us-central1-a --project=ecommerce-pa2-2026 \
+        -- -T "tail -20 ~/seller_server.log"
 
 --------------------------------------------------------------------------------
-5. DEMO WORKFLOW - SELLER
+7. PORT REFERENCE
 --------------------------------------------------------------------------------
 
-1. Start seller client: python seller_client.py
-2. Create Account:
-   - Choose option 1
-   - Enter username: seller1
-   - Enter password: pass123
-   - Enter name: John Seller
-3. Login:
-   - Choose option 2
-   - Enter username: seller1
-   - Enter password: pass123
-4. Register Item:
-   - Choose option 3
-   - Item name: iPhone 15
-   - Category: 1
-   - Keywords: phone,apple,smartphone
-   - Condition: New
-   - Price: 999.99
-   - Quantity: 10
-5. Display Items:
-   - Choose option 6
-6. Logout:
-   - Choose option 1
+Component             Port     Protocol   VM
+--------------------- -------- ---------- ---------------
+Customer Database     50051    gRPC       customer-db
+Product Database      50052    gRPC       product-db
+Seller Server         5003     REST/HTTP  seller-server
+Buyer Server          5004     REST/HTTP  buyer-server
+Financial Service     8000     SOAP/HTTP  buyer-server
 
 --------------------------------------------------------------------------------
-6. DEMO WORKFLOW - BUYER
+8. DEMO WORKFLOW - SELLER
 --------------------------------------------------------------------------------
 
-1. Start buyer client: python buyer_client.py
-2. Create Account:
-   - Choose option 1
-   - Enter username: buyer1
-   - Enter password: pass123
-   - Enter name: Jane Buyer
-3. Login:
-   - Choose option 2
-   - Enter username: buyer1
-   - Enter password: pass123
-4. Search Items:
-   - Choose option 2
-   - Category: 1
-   - Keywords: phone
-5. Add to Cart:
-   - Choose option 4
-   - Item ID: [1, 1]
-   - Quantity: 2
-6. Display Cart:
-   - Choose option 6
-7. Provide Feedback:
-   - Choose option 8
-   - Item ID: [1, 1]
-   - Feedback: thumbs_up
-8. Get Seller Rating:
-   - Choose option 9
-   - Seller ID: 1
-9. Logout:
-   - Choose option 1
+    python seller_client.py --host 136.116.235.76 --port 5003
+
+    1. Create Account  → username: seller1, password: pass123, name: John
+    2. Login           → username: seller1, password: pass123
+    3. Register Item   → name: iPhone 15, category: 1, keywords: phone,apple
+                         condition: New, price: 999.99, quantity: 10
+    4. Display Items   → option 6
+    5. Change Price    → item ID: [1, 1], new price: 899.99
+    6. Get My Rating   → option 2
+    7. Logout          → option 1
 
 --------------------------------------------------------------------------------
-7. QUICK TEST - VERIFY SYSTEM WORKS
+9. DEMO WORKFLOW - BUYER
 --------------------------------------------------------------------------------
 
-After starting all 4 servers, run this quick check:
+    python buyer_client.py --host 34.172.181.121 --port 5004
 
-    cd Evaluation
-    python -c "
-import socket
-import json
-
-def test(host, port, name):
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(2)
-        s.connect((host, port))
-        s.close()
-        print(f'[OK] {name} at {host}:{port}')
-    except:
-        print(f'[FAIL] {name} at {host}:{port}')
-
-test('localhost', 5001, 'Customer DB')
-test('localhost', 5002, 'Product DB')
-test('localhost', 5003, 'Seller Server')
-test('localhost', 5004, 'Buyer Server')
-"
-
---------------------------------------------------------------------------------
-8. PORT REFERENCE
---------------------------------------------------------------------------------
-
-Component             Default Port    Description
---------------------- -------------- ----------------------------------
-Customer Database     5001           Stores users and sessions
-Product Database      5002           Stores items, carts, feedback
-Seller Server         5003           Handles seller API requests
-Buyer Server          5004           Handles buyer API requests
-
---------------------------------------------------------------------------------
-9. STOPPING THE SYSTEM
---------------------------------------------------------------------------------
-
-Press Ctrl+C in each terminal to stop the servers.
+    1. Create Account  → username: buyer1, password: pass123, name: Jane
+    2. Login           → username: buyer1, password: pass123
+    3. Search Items    → category: 1, keywords: phone
+    4. Get Item        → item ID: [1, 1]
+    5. Add to Cart     → item ID: [1, 1], quantity: 1
+    6. Display Cart    → option 6
+    7. Save Cart       → option 7
+    8. Make Purchase   → item ID: [1, 1], quantity: 1
+                         name: Jane Buyer, card: 4111111111111111
+                         expiry: 12/26, cvv: 123
+    9. View History    → option 12
+   10. Provide Feedback→ item ID: [1, 1], thumbs_up
+   11. Logout          → option 1
 
 ================================================================================

@@ -1,187 +1,168 @@
-import socket
-import json
-import threading
+import grpc
 import argparse
+from flask import Flask, request, jsonify
 
-# Default configuration (can be overridden via command line)
-CUSTOMER_DB_HOST = 'localhost'
-CUSTOMER_DB_PORT = 5001
-PRODUCT_DB_HOST = 'localhost'
-PRODUCT_DB_PORT = 5002
+import sys
+import os
+sys.path.insert(0, os.path.dirname(__file__))
 
-def send_to_db(host, port, operation, data):
-    """Helper function to communicate with databases"""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((host, port))
-    
-    request = {'operation': operation, 'data': data}
-    sock.send(json.dumps(request).encode('utf-8'))
-    
-    response = sock.recv(4096).decode('utf-8')
-    sock.close()
-    
-    return json.loads(response)
+import customer_db_pb2
+import customer_db_pb2_grpc
+import product_db_pb2
+import product_db_pb2_grpc
 
-def handle_client(client_socket):
-    try:
-        data = client_socket.recv(4096).decode('utf-8')
-        request = json.loads(data)
-        
-        api = request.get('api')
-        session_id = request.get('session_id')
-        payload = request.get('payload', {})
-        
-        # APIs that don't require login
-        if api == 'CreateAccount':
-            response = create_account(payload)
-        elif api == 'Login':
-            response = login(payload)
-        else:
-            # Validate session for all other APIs
-            session_response = send_to_db(CUSTOMER_DB_HOST, CUSTOMER_DB_PORT, 'get_session', {'session_id': session_id})
-            if session_response['status'] != 'success':
-                response = {'status': 'error', 'message': 'Invalid or expired session'}
-            else:
-                # Update session activity
-                send_to_db(CUSTOMER_DB_HOST, CUSTOMER_DB_PORT, 'update_session_activity', {'session_id': session_id})
-                
-                seller_id = session_response['data']['user_id']
-                
-                if api == 'Logout':
-                    response = logout(session_id)
-                elif api == 'GetSellerRating':
-                    response = get_seller_rating(seller_id)
-                elif api == 'RegisterItemForSale':
-                    response = register_item_for_sale(seller_id, payload)
-                elif api == 'ChangeItemPrice':
-                    response = change_item_price(payload)
-                elif api == 'UpdateUnitsForSale':
-                    response = update_units_for_sale(payload)
-                elif api == 'DisplayItemsForSale':
-                    response = display_items_for_sale(seller_id)
-                else:
-                    response = {'status': 'error', 'message': 'Unknown API'}
-        
-        client_socket.send(json.dumps(response).encode('utf-8'))
-    except Exception as e:
-        error_response = {'status': 'error', 'message': str(e)}
-        client_socket.send(json.dumps(error_response).encode('utf-8'))
-    finally:
-        client_socket.close()
+app = Flask(__name__)
 
-def create_account(payload):
-    # Store user in customer database
-    user_data = {
-        'username': payload['username'],
-        'password': payload['password'],
-        'name': payload['name'],
-        'user_type': 'seller'
-    }
-    response = send_to_db(CUSTOMER_DB_HOST, CUSTOMER_DB_PORT, 'store_user', user_data)
-    return response
+_customer_stub = None
+_product_stub = None
 
-def login(payload):
-    # Get user from database
-    user_response = send_to_db(CUSTOMER_DB_HOST, CUSTOMER_DB_PORT, 'get_user', {'username': payload['username']})
-    
-    if user_response['status'] != 'success':
-        return {'status': 'error', 'message': 'User not found'}
-    
-    user = user_response['data']
-    
-    # Check password
-    if user['password'] != payload['password']:
-        return {'status': 'error', 'message': 'Invalid password'}
-    
-    # Check user type
-    if user['user_type'] != 'seller':
-        return {'status': 'error', 'message': 'Not a seller account'}
-    
-    # Create session
-    session_data = {
-        'user_id': user['user_id'],
-        'user_type': 'seller'
-    }
-    session_response = send_to_db(CUSTOMER_DB_HOST, CUSTOMER_DB_PORT, 'store_session', session_data)
-    
-    if session_response['status'] == 'success':
-        return {
-            'status': 'success',
-            'data': {
-                'session_id': session_response['data']['session_id'],
-                'seller_id': user['user_id']
-            }
-        }
-    return session_response
 
-def logout(session_id):
-    response = send_to_db(CUSTOMER_DB_HOST, CUSTOMER_DB_PORT, 'delete_session', {'session_id': session_id})
-    return response
+def validate_session(req):
+    session_id = req.headers.get('X-Session-ID', '')
+    if not session_id:
+        return None, ('Missing session', 401)
+    resp = _customer_stub.GetSession(customer_db_pb2.GetSessionRequest(session_id=session_id))
+    if resp.status != 'success':
+        return None, (resp.message, 401)
+    _customer_stub.UpdateSessionActivity(customer_db_pb2.SessionRequest(session_id=session_id))
+    return resp, None
 
+
+@app.route('/seller/account', methods=['POST'])
+def create_account():
+    data = request.json
+    resp = _customer_stub.StoreUser(customer_db_pb2.StoreUserRequest(
+        username=data['username'],
+        password=data['password'],
+        name=data['name'],
+        user_type='seller'
+    ))
+    if resp.status != 'success':
+        return jsonify({'status': 'error', 'message': resp.message}), 400
+    return jsonify({'status': 'success', 'user_id': resp.user_id})
+
+
+@app.route('/seller/login', methods=['POST'])
+def login():
+    data = request.json
+    user_resp = _customer_stub.GetUser(customer_db_pb2.GetUserRequest(username=data['username']))
+    if user_resp.status != 'success':
+        return jsonify({'status': 'error', 'message': 'User not found'}), 401
+    if user_resp.password != data['password']:
+        return jsonify({'status': 'error', 'message': 'Invalid password'}), 401
+    if user_resp.user_type != 'seller':
+        return jsonify({'status': 'error', 'message': 'Not a seller account'}), 401
+    sess_resp = _customer_stub.StoreSession(customer_db_pb2.StoreSessionRequest(
+        user_id=user_resp.user_id, user_type='seller'
+    ))
+    return jsonify({
+        'status': 'success',
+        'session_id': sess_resp.session_id,
+        'seller_id': user_resp.user_id
+    })
+
+
+@app.route('/seller/logout', methods=['POST'])
+def logout():
+    session_resp, err = validate_session(request)
+    if err:
+        return jsonify({'status': 'error', 'message': err[0]}), err[1]
+    session_id = request.headers.get('X-Session-ID')
+    _customer_stub.DeleteSession(customer_db_pb2.SessionRequest(session_id=session_id))
+    return jsonify({'status': 'success'})
+
+
+@app.route('/seller/rating/<int:seller_id>', methods=['GET'])
 def get_seller_rating(seller_id):
-    response = send_to_db(PRODUCT_DB_HOST, PRODUCT_DB_PORT, 'get_seller_rating', {'seller_id': seller_id})
-    return response
+    session_resp, err = validate_session(request)
+    if err:
+        return jsonify({'status': 'error', 'message': err[0]}), err[1]
+    resp = _product_stub.GetSellerRating(product_db_pb2.GetSellerRatingRequest(seller_id=seller_id))
+    return jsonify({'status': 'success', 'thumbs_up': resp.thumbs_up, 'thumbs_down': resp.thumbs_down})
 
-def register_item_for_sale(seller_id, payload):
-    item_data = {
-        'seller_id': seller_id,
-        'name': payload['name'],
-        'category': payload['category'],
-        'keywords': payload.get('keywords', []),
-        'condition': payload['condition'],
-        'price': payload['price'],
-        'quantity': payload['quantity']
-    }
-    response = send_to_db(PRODUCT_DB_HOST, PRODUCT_DB_PORT, 'register_item', item_data)
-    return response
 
-def change_item_price(payload):
-    response = send_to_db(PRODUCT_DB_HOST, PRODUCT_DB_PORT, 'update_item_price', {
-        'item_id': payload['item_id'],
-        'price': payload['price']
-    })
-    return response
+@app.route('/seller/items', methods=['POST'])
+def register_item():
+    session_resp, err = validate_session(request)
+    if err:
+        return jsonify({'status': 'error', 'message': err[0]}), err[1]
+    seller_id = session_resp.user_id
+    data = request.json
+    resp = _product_stub.RegisterItem(product_db_pb2.RegisterItemRequest(
+        seller_id=seller_id,
+        name=data['name'],
+        category=data['category'],
+        keywords=data.get('keywords', []),
+        condition=data['condition'],
+        price=data['price'],
+        quantity=data['quantity']
+    ))
+    if resp.status != 'success':
+        return jsonify({'status': 'error', 'message': resp.message}), 400
+    return jsonify({'status': 'success', 'item_id': [resp.item_id.category, resp.item_id.item_id]})
 
-def update_units_for_sale(payload):
-    response = send_to_db(PRODUCT_DB_HOST, PRODUCT_DB_PORT, 'update_item_quantity', {
-        'item_id': payload['item_id'],
-        'quantity': payload['quantity']
-    })
-    return response
 
-def display_items_for_sale(seller_id):
-    response = send_to_db(PRODUCT_DB_HOST, PRODUCT_DB_PORT, 'get_seller_items', {'seller_id': seller_id})
-    return response
+@app.route('/seller/items/<int:cat>/<int:iid>/price', methods=['PUT'])
+def change_price(cat, iid):
+    session_resp, err = validate_session(request)
+    if err:
+        return jsonify({'status': 'error', 'message': err[0]}), err[1]
+    data = request.json
+    item_id = product_db_pb2.ItemId(category=cat, item_id=iid)
+    _product_stub.UpdateItemPrice(product_db_pb2.UpdateItemPriceRequest(item_id=item_id, price=data['price']))
+    return jsonify({'status': 'success'})
 
-def start_server(host='localhost', port=5003):
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_socket.bind((host, port))
-    server_socket.listen(5)
-    
-    print(f"Seller Server listening on {host}:{port}")
-    
-    while True:
-        client_socket, addr = server_socket.accept()
-        print(f"Connection from {addr}")
-        
-        client_thread = threading.Thread(target=handle_client, args=(client_socket,))
-        client_thread.start()
+
+@app.route('/seller/items/<int:cat>/<int:iid>/quantity', methods=['PUT'])
+def change_quantity(cat, iid):
+    session_resp, err = validate_session(request)
+    if err:
+        return jsonify({'status': 'error', 'message': err[0]}), err[1]
+    data = request.json
+    item_id = product_db_pb2.ItemId(category=cat, item_id=iid)
+    _product_stub.UpdateItemQuantity(product_db_pb2.UpdateItemQuantityRequest(item_id=item_id, quantity=data['quantity']))
+    return jsonify({'status': 'success'})
+
+
+@app.route('/seller/items', methods=['GET'])
+def display_items():
+    session_resp, err = validate_session(request)
+    if err:
+        return jsonify({'status': 'error', 'message': err[0]}), err[1]
+    seller_id = session_resp.user_id
+    resp = _product_stub.GetSellerItems(product_db_pb2.GetSellerItemsRequest(seller_id=seller_id))
+    items = []
+    for item in resp.items:
+        items.append({
+            'item_id': [item.item_id.category, item.item_id.item_id],
+            'name': item.name,
+            'category': item.category,
+            'keywords': list(item.keywords),
+            'condition': item.condition,
+            'price': item.price,
+            'quantity': item.quantity,
+            'thumbs_up': item.thumbs_up,
+            'thumbs_down': item.thumbs_down
+        })
+    return jsonify({'status': 'success', 'items': items})
+
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Seller Server')
-    parser.add_argument('--host', default='localhost', help='Host to bind to')
-    parser.add_argument('--port', type=int, default=5003, help='Port to bind to')
-    parser.add_argument('--customer-db-host', default='localhost', help='Customer DB host')
-    parser.add_argument('--customer-db-port', type=int, default=5001, help='Customer DB port')
-    parser.add_argument('--product-db-host', default='localhost', help='Product DB host')
-    parser.add_argument('--product-db-port', type=int, default=5002, help='Product DB port')
+    parser = argparse.ArgumentParser(description='Seller REST Server')
+    parser.add_argument('--host', default='0.0.0.0')
+    parser.add_argument('--port', type=int, default=5003)
+    parser.add_argument('--customer-db-host', default='localhost')
+    parser.add_argument('--customer-db-port', type=int, default=50051)
+    parser.add_argument('--product-db-host', default='localhost')
+    parser.add_argument('--product-db-port', type=int, default=50052)
     args = parser.parse_args()
 
-    # Update config
-    CUSTOMER_DB_HOST = args.customer_db_host
-    CUSTOMER_DB_PORT = args.customer_db_port
-    PRODUCT_DB_HOST = args.product_db_host
-    PRODUCT_DB_PORT = args.product_db_port
+    _customer_stub = customer_db_pb2_grpc.CustomerDBStub(
+        grpc.insecure_channel(f'{args.customer_db_host}:{args.customer_db_port}')
+    )
+    _product_stub = product_db_pb2_grpc.ProductDBStub(
+        grpc.insecure_channel(f'{args.product_db_host}:{args.product_db_port}')
+    )
 
-    start_server(host=args.host, port=args.port)
+    print(f'Seller REST server on {args.host}:{args.port}')
+    app.run(host=args.host, port=args.port)

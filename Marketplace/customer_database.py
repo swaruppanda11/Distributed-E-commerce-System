@@ -1,126 +1,165 @@
-import socket
-import json
+import grpc
+import sqlite3
 import threading
 import time
 import uuid
 import argparse
+from concurrent import futures
 
-users = {}
-sessions = {}
-carts = {}
-user_counter = 1
+import sys
+import os
+sys.path.insert(0, os.path.dirname(__file__))
 
-def handle_client(client_socket):
-    try:
-        data = client_socket.recv(4096).decode('utf-8')
-        request = json.loads(data)
-        operation = request.get('operation')
-        
-        if operation == 'store_user':
-            response = store_user(request['data'])
-        elif operation == 'get_user':
-            response = get_user(request['data'])
-        elif operation == 'store_session':
-            response = store_session(request['data'])
-        elif operation == 'get_session':
-            response = get_session(request['data'])
-        elif operation == 'update_session_activity':
-            response = update_session_activity(request['data'])
-        elif operation == 'delete_session':
-            response = delete_session(request['data'])
-        else:
-            response = {'status': 'error', 'message': 'Invalid operation'}
-        
-        client_socket.send(json.dumps(response).encode('utf-8'))
-    except Exception as e:
-        error_response = {'status': 'error', 'message': str(e)}
-        client_socket.send(json.dumps(error_response).encode('utf-8'))
-    finally:
-        client_socket.close()
+import customer_db_pb2
+import customer_db_pb2_grpc
 
-        
-def store_user(user_data):
-    global user_counter
-    user_id = user_counter
-    user_counter += 1
-    
-    users[user_id] = {
-        'user_id': user_id,
-        'username': user_data['username'],
-        'password': user_data['password'],
-        'name': user_data['name'],
-        'user_type': user_data['user_type']
-    }
-    
-    return {'status': 'success', 'data': {'user_id': user_id}}
-
-def get_user(data):
-    username = data['username']
-    for uid, user_info in users.items():
-        if user_info['username'] == username:
-            return {'status': 'success', 'data': user_info}
-    return {'status': 'error', 'message': 'User not found'}
+DB_FILE = 'customer_data.db'
+db_lock = threading.Lock()
 
 
-def store_session(data):
-    # data contains: user_id, user_type
-    session_id = str(uuid.uuid4())
-    sessions[session_id] = {
-        'session_id': session_id,
-        'user_id': data['user_id'],
-        'user_type': data['user_type'],
-        'last_activity': time.time()
-    }
-    return {'status': 'success', 'data': {'session_id': session_id}}
-
-def get_session(data):
-    # data contains: session_id
-    session_id = data['session_id']
-    if session_id in sessions:
-        session = sessions[session_id]
-        # Check if session expired (5 minutes = 300 seconds)
-        if time.time() - session['last_activity'] > 300:
-            del sessions[session_id]
-            return {'status': 'error', 'message': 'Session expired'}
-        return {'status': 'success', 'data': session}
-    return {'status': 'error', 'message': 'Session not found'}
-
-def update_session_activity(data):
-    # data contains: session_id
-    session_id = data['session_id']
-    if session_id in sessions:
-        sessions[session_id]['last_activity'] = time.time()
-        return {'status': 'success'}
-    return {'status': 'error', 'message': 'Session not found'}
-
-def delete_session(data):
-    # data contains: session_id
-    session_id = data['session_id']
-    if session_id in sessions:
-        del sessions[session_id]
-        return {'status': 'success'}
-    return {'status': 'error', 'message': 'Session not found'}
+def get_connection():
+    return sqlite3.connect(DB_FILE, check_same_thread=False)
 
 
-def start_server(host='localhost', port=5001):
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_socket.bind((host, port))
-    server_socket.listen(5)
-    
-    print(f"Customer Database listening on {host}:{port}")
-    
-    while True:
-        client_socket, addr = server_socket.accept()
-        print(f"Connection from {addr}")
-        
-        client_thread = threading.Thread(target=handle_client, args=(client_socket,))
-        client_thread.start()
+def init_db():
+    with db_lock:
+        conn = get_connection()
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                user_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                username  TEXT UNIQUE NOT NULL,
+                password  TEXT NOT NULL,
+                name      TEXT NOT NULL,
+                user_type TEXT NOT NULL
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id    TEXT PRIMARY KEY,
+                user_id       INTEGER NOT NULL,
+                user_type     TEXT NOT NULL,
+                last_activity REAL NOT NULL
+            )
+        ''')
+        conn.commit()
+        conn.close()
+
+
+class CustomerDBServicer(customer_db_pb2_grpc.CustomerDBServicer):
+
+    def StoreUser(self, request, context):
+        with db_lock:
+            conn = get_connection()
+            try:
+                cursor = conn.execute(
+                    'INSERT INTO users (username, password, name, user_type) VALUES (?, ?, ?, ?)',
+                    (request.username, request.password, request.name, request.user_type)
+                )
+                conn.commit()
+                user_id = cursor.lastrowid
+                return customer_db_pb2.StoreUserResponse(
+                    status='success', message='User created', user_id=user_id
+                )
+            except sqlite3.IntegrityError:
+                return customer_db_pb2.StoreUserResponse(
+                    status='error', message='Username already exists', user_id=0
+                )
+            finally:
+                conn.close()
+
+    def GetUser(self, request, context):
+        with db_lock:
+            conn = get_connection()
+            try:
+                row = conn.execute(
+                    'SELECT user_id, username, password, name, user_type FROM users WHERE username = ?',
+                    (request.username,)
+                ).fetchone()
+                if row is None:
+                    return customer_db_pb2.GetUserResponse(status='error', message='User not found')
+                return customer_db_pb2.GetUserResponse(
+                    status='success', message='',
+                    user_id=row[0], username=row[1], password=row[2],
+                    name=row[3], user_type=row[4]
+                )
+            finally:
+                conn.close()
+
+    def StoreSession(self, request, context):
+        session_id = str(uuid.uuid4())
+        with db_lock:
+            conn = get_connection()
+            try:
+                conn.execute(
+                    'INSERT INTO sessions (session_id, user_id, user_type, last_activity) VALUES (?, ?, ?, ?)',
+                    (session_id, request.user_id, request.user_type, time.time())
+                )
+                conn.commit()
+                return customer_db_pb2.StoreSessionResponse(
+                    status='success', message='', session_id=session_id
+                )
+            finally:
+                conn.close()
+
+    def GetSession(self, request, context):
+        with db_lock:
+            conn = get_connection()
+            try:
+                row = conn.execute(
+                    'SELECT user_id, user_type, last_activity FROM sessions WHERE session_id = ?',
+                    (request.session_id,)
+                ).fetchone()
+                if row is None:
+                    return customer_db_pb2.GetSessionResponse(status='error', message='Session not found')
+                user_id, user_type, last_activity = row
+                if time.time() - last_activity > 300:
+                    conn.execute('DELETE FROM sessions WHERE session_id = ?', (request.session_id,))
+                    conn.commit()
+                    return customer_db_pb2.GetSessionResponse(status='error', message='Session expired')
+                return customer_db_pb2.GetSessionResponse(
+                    status='success', message='',
+                    user_id=user_id, user_type=user_type, last_activity=last_activity
+                )
+            finally:
+                conn.close()
+
+    def UpdateSessionActivity(self, request, context):
+        with db_lock:
+            conn = get_connection()
+            try:
+                conn.execute(
+                    'UPDATE sessions SET last_activity = ? WHERE session_id = ?',
+                    (time.time(), request.session_id)
+                )
+                conn.commit()
+                return customer_db_pb2.StatusResponse(status='success', message='')
+            finally:
+                conn.close()
+
+    def DeleteSession(self, request, context):
+        with db_lock:
+            conn = get_connection()
+            try:
+                conn.execute('DELETE FROM sessions WHERE session_id = ?', (request.session_id,))
+                conn.commit()
+                return customer_db_pb2.StatusResponse(status='success', message='')
+            finally:
+                conn.close()
+
+
+def serve(host='0.0.0.0', port=50051):
+    init_db()
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    customer_db_pb2_grpc.add_CustomerDBServicer_to_server(CustomerDBServicer(), server)
+    server.add_insecure_port(f'{host}:{port}')
+    server.start()
+    print(f'Customer Database gRPC server listening on {host}:{port}')
+    server.wait_for_termination()
+
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Customer Database Server')
-    parser.add_argument('--host', default='localhost', help='Host to bind to')
-    parser.add_argument('--port', type=int, default=5001, help='Port to bind to')
+    parser = argparse.ArgumentParser(description='Customer Database gRPC Server')
+    parser.add_argument('--host', default='0.0.0.0')
+    parser.add_argument('--port', type=int, default=50051)
     args = parser.parse_args()
-
-    start_server(host=args.host, port=args.port)
+    serve(host=args.host, port=args.port)
