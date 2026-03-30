@@ -1,299 +1,453 @@
 ================================================================================
-              E-COMMERCE MARKETPLACE - PA2 COMMAND REFERENCE
+              E-COMMERCE MARKETPLACE - PA3 COMMAND REFERENCE
 ================================================================================
 
-GCP VM IPs (project: ecommerce-pa2-2026, zone: us-central1-a)
-  customer-db   : 34.69.98.232    (gRPC  port 50051)
-  product-db    : 34.136.92.145   (gRPC  port 50052)
-  seller-server : 136.111.186.21  (REST  port 5003)
-  buyer-server  : 34.58.132.49    (REST  port 5004)
-  financial svc : localhost on buyer-server VM (SOAP port 8000)
+GCP Project: ecommerce-pa2-2026     Zone: us-central1-a
+VMs: customer-db, product-db, seller-server, buyer-server
 
-NOTE: IPs are ephemeral — they change every time VMs are stopped/started.
-      After restarting VMs, get new IPs with the command in section 0.
+NOTE: IPs are ephemeral — after starting VMs, run section 0 to get new IPs,
+      then replace <VM1_IP> ... <VM4_IP> in all commands below.
 
---------------------------------------------------------------------------------
-0. VM MANAGEMENT (start / stop / get IPs)
---------------------------------------------------------------------------------
-
-    # Start all 4 VMs:
-    gcloud compute instances start customer-db product-db seller-server buyer-server \
-        --zone=us-central1-a --project=ecommerce-pa2-2026
-
-    # Stop all 4 VMs (saves cost):
-    gcloud compute instances stop customer-db product-db seller-server buyer-server \
-        --zone=us-central1-a --project=ecommerce-pa2-2026
-
-    # Get current external IPs (run this after every VM restart):
-    gcloud compute instances list --project=ecommerce-pa2-2026 \
-        --format="table(name,networkInterfaces[0].accessConfigs[0].natIP)"
-
-    # SSH into any VM:
-    gcloud compute ssh customer-db   --zone=us-central1-a --project=ecommerce-pa2-2026
-    gcloud compute ssh product-db    --zone=us-central1-a --project=ecommerce-pa2-2026
-    gcloud compute ssh seller-server --zone=us-central1-a --project=ecommerce-pa2-2026
-    gcloud compute ssh buyer-server  --zone=us-central1-a --project=ecommerce-pa2-2026
-
---------------------------------------------------------------------------------
-1. FIRST-TIME SETUP (local machine)
---------------------------------------------------------------------------------
-
-    cd "ECommerce - PA1/Marketplace"
-    python3 -m venv .venv
-    .venv/bin/pip install -r requirements.txt
-    .venv/bin/python -m grpc_tools.protoc -I proto --python_out=. --grpc_python_out=. \
-        proto/customer_db.proto proto/product_db.proto
-
---------------------------------------------------------------------------------
-2. RUNNING CLIENTS (connect to GCP cloud servers)
---------------------------------------------------------------------------------
-
-    cd "ECommerce - PA1/Marketplace"
-    .venv/bin/python seller_client.py --host 136.111.186.21 --port 5003
-    .venv/bin/python buyer_client.py  --host 34.58.132.49   --port 5004
-
---------------------------------------------------------------------------------
-3. LOCAL DEPLOYMENT (all on one machine, for testing)
---------------------------------------------------------------------------------
-
-Start in this order (separate terminals), all from the Marketplace directory:
-
-    .venv/bin/python financial_service.py                          # SOAP  :8000
-    .venv/bin/python customer_database.py                          # gRPC  :50051
-    .venv/bin/python product_database.py                           # gRPC  :50052
-    .venv/bin/python seller_server.py                              # REST  :5003
-    .venv/bin/python buyer_server.py --financial-host localhost    # REST  :5004
-
-    .venv/bin/python seller_client.py   # default localhost:5003
-    .venv/bin/python buyer_client.py    # default localhost:5004
-
---------------------------------------------------------------------------------
-4. CLOUD DEPLOYMENT (GCP) - start services on VMs after a restart
---------------------------------------------------------------------------------
-
-    # STEP 1 — Get new IPs first (section 0 above), then update commands below.
-
-    # On customer-db VM:
-    nohup ~/Marketplace/venv/bin/python ~/Marketplace/customer_database.py \
-        --host 0.0.0.0 --port 50051 </dev/null >> ~/customer_db.log 2>&1 &
-
-    # On product-db VM:
-    nohup ~/Marketplace/venv/bin/python ~/Marketplace/product_database.py \
-        --host 0.0.0.0 --port 50052 </dev/null >> ~/product_db.log 2>&1 &
-
-    # On seller-server VM (replace DB IPs with current ones):
-    nohup ~/Marketplace/venv/bin/python ~/Marketplace/seller_server.py \
-        --host 0.0.0.0 --port 5003 \
-        --customer-db-host 34.69.98.232 --customer-db-port 50051 \
-        --product-db-host  34.136.92.145 --product-db-port  50052 \
-        </dev/null >> ~/seller_server.log 2>&1 &
-
-    # On buyer-server VM — start financial service FIRST, then buyer server:
-    nohup ~/Marketplace/venv/bin/python ~/Marketplace/financial_service.py \
-        --host 0.0.0.0 --port 8000 </dev/null >> ~/financial.log 2>&1 &
-
-    nohup ~/Marketplace/venv/bin/python ~/Marketplace/buyer_server.py \
-        --host 0.0.0.0 --port 5004 \
-        --customer-db-host 34.69.98.232  --customer-db-port 50051 \
-        --product-db-host  34.136.92.145 --product-db-port  50052 \
-        --financial-host localhost --financial-port 8000 \
-        </dev/null >> ~/buyer_server.log 2>&1 &
-
-    # IMPORTANT: financial_service.py must be running before buyer_server.py starts,
-    # because buyer_server fetches the WSDL from it at startup.
-
---------------------------------------------------------------------------------
-5. VERIFY CLOUD SERVICES ARE RUNNING
---------------------------------------------------------------------------------
-
-    # Quick REST health check (should return HTTP 405 — POST only):
-    curl http://136.111.186.21:5003/seller/account
-    curl http://34.58.132.49:5004/buyer/account
-
-    # Check processes running on a VM:
-    gcloud compute ssh buyer-server --zone=us-central1-a --project=ecommerce-pa2-2026 \
-        -- -T "ps aux | grep python | grep -v grep"
-
-    # Tail logs on a VM:
-    gcloud compute ssh seller-server --zone=us-central1-a --project=ecommerce-pa2-2026 \
-        -- -T "tail -20 ~/seller_server.log"
-    gcloud compute ssh buyer-server --zone=us-central1-a --project=ecommerce-pa2-2026 \
-        -- -T "tail -20 ~/buyer_server.log"
-
---------------------------------------------------------------------------------
-6. PERFORMANCE BENCHMARK
---------------------------------------------------------------------------------
-
-    cd Marketplace
-
-    # Full benchmark (all 3 scenarios, 10 runs, 1000 calls each):
-    .venv/bin/python benchmark.py --scenarios 1 2 3 --runs 10 --calls 1000
-
-    # Quick test (scenario 1 only, 1 run, 10 calls):
-    .venv/bin/python benchmark.py --scenarios 1 --runs 1 --calls 10
-
-    # Point at GCP servers explicitly:
-    .venv/bin/python benchmark.py \
-        --seller-url http://136.111.186.21:5003 \
-        --buyer-url  http://34.58.132.49:5004
-
-    Results saved to: benchmark_results.json
-
---------------------------------------------------------------------------------
-7. PORT REFERENCE
---------------------------------------------------------------------------------
-
-Component             Port     Protocol   VM
---------------------- -------- ---------- ---------------
-Customer Database     50051    gRPC       customer-db
-Product Database      50052    gRPC       product-db
-Seller Server         5003     REST/HTTP  seller-server
-Buyer Server          5004     REST/HTTP  buyer-server
-Financial Service     8000     SOAP/HTTP  buyer-server
-
---------------------------------------------------------------------------------
-8. DEMO WORKFLOW - SELLER (terminal 1)
---------------------------------------------------------------------------------
-
-    cd "ECommerce - PA1/Marketplace"
-    .venv/bin/python seller_client.py --host 136.111.186.21 --port 5003
-
-    Menu choices (after connecting):
-
-    [Not logged in]
-      1 → Create Account
-            Username : seller1
-            Password : pass123
-            Name     : John
-          → "Account created! Your seller ID is: X"
-
-      2 → Login
-            Username : seller1
-            Password : pass123
-          → "Logged in! Seller ID: X"
-
-    [Logged in]
-      3 → Register Item for Sale
-            Item name  : iPhone 15
-            Category   : 1
-            Keywords   : phone,apple,smartphone
-            Condition  : New
-            Price      : 999.99
-            Quantity   : 10
-          → "Item registered! Item ID: [1, Y]"  ← NOTE this item ID for buyer demo
-
-      6 → Display My Items
-          → confirms the item is listed with correct details
-
-      2 → Get My Rating
-          → "Thumbs Up: 0 | Thumbs Down: 0" (will update after buyer feedback)
-
-      4 → Change Item Price
-            Item ID   : [1, Y]   (use the ID shown when registering)
-            New price : 899.99
-
-      5 → Update Units for Sale
-            Item ID      : [1, Y]
-            New quantity : 20
-
-      1 → Logout
-
---------------------------------------------------------------------------------
-9. DEMO WORKFLOW - BUYER (terminal 2)
---------------------------------------------------------------------------------
-
-    cd "ECommerce - PA1/Marketplace"
-    .venv/bin/python buyer_client.py --host 34.58.132.49 --port 5004
-
-    Menu choices (after connecting):
-
-    [Not logged in]
-      1 → Create Account
-            Username : buyer1
-            Password : pass123
-            Name     : Jane
-          → "Account created! Your buyer ID is: Z"
-
-      2 → Login
-            Username : buyer1
-            Password : pass123
-          → "Logged in! Buyer ID: Z"
-
-    [Logged in]
-      2 → Search Items
-            Category : 1          (or press Enter to skip)
-            Keywords : phone       (or press Enter to skip)
-          → lists all matching items with their Item IDs
-
-      3 → Get Item Details
-            Item ID : [1, Y]      (use exact ID from seller demo)
-          → shows price, quantity, seller ID, feedback
-
-      4 → Add Item to Cart
-            Item ID  : [1, Y]
-            Quantity : 2
-          → "Item added to cart! (use Save Cart to persist)"
-
-      6 → Display Cart
-          → "Item ID: [1, Y] - Quantity: 2"
-
-      7 → Save Cart
-          → "Cart saved!"  (persisted to product_db via gRPC)
-
-      11 → Make Purchase
-             Item ID         : [1, Y]
-             Quantity        : 1
-             Cardholder name : Jane Buyer
-             Card number     : 4111111111111111
-             Expiration date : 12/26
-             Security code   : 123
-           → "Purchase successful!"   (90% chance — retry if declined)
-           
-
-      12 → View Purchase History
-           → "Item ID: [1, Y] | Qty: 1 | Time: 2026-..."
-             (confirms the purchase was recorded in product_db SQLite)
-
-      9 → Provide Feedback
-            Item ID       : [1, Y]
-            Feedback type : thumbs_up
-          → "Feedback submitted!"
-            (updates both the item's thumbs_up counter AND the seller's rating)
-
-      10 → Get Seller Rating
-             Seller ID : X        (use seller ID shown at seller login)
-           → "Thumbs Up: 1 | Thumbs Down: 0"
-
-      8 → Clear Cart
-          → clears local cart (use Save Cart option 7 to also clear server-side)
-
-      1 → Logout
-
---------------------------------------------------------------------------------
-10. MAKEPURCHASE FLOW — HOW IT WORKS INTERNALLY
---------------------------------------------------------------------------------
-
-When the buyer selects "Make Purchase":
-
-  buyer_client.py  →  POST /buyer/purchase  →  buyer_server.py
-                                                    │
-                                                    ├─ validate session (gRPC → customer_database)
-                                                    │
-                                                    ├─ ProcessPayment (SOAP → financial_service.py)
-                                                    │      └─ returns True/False (90% True randomly)
-                                                    │         Payment declined → HTTP 402 returned
-                                                    │
-                                                    └─ MakePurchase (gRPC → product_database)
-                                                           ├─ check quantity in items table
-                                                           ├─ decrement quantity atomically (db_lock)
-                                                           └─ insert into purchases table
-
-  All database writes in product_database.py are guarded by threading.Lock (db_lock)
-  to prevent race conditions when multiple buyers purchase simultaneously.
+      VM1 = customer-db      VM3 = seller-server
+      VM2 = product-db       VM4 = buyer-server
 
 ================================================================================
+PA3 REPLICA LAYOUT (18 processes across 4 VMs)
+================================================================================
 
+VM1 (customer-db):
+  - customer_database_replicated node 0   gRPC :50051   UDP :6000
+  - customer_database_replicated node 1   gRPC :50061   UDP :6001
+  - product_database_replicated  node 0   gRPC :50052   Raft :4321
+  - seller_server                replica 0  REST :5003
+  - financial_service                       SOAP :8000
 
+VM2 (product-db):
+  - customer_database_replicated node 2   gRPC :50051   UDP :6000
+  - customer_database_replicated node 3   gRPC :50061   UDP :6001
+  - product_database_replicated  node 1   gRPC :50052   Raft :4321
+  - product_database_replicated  node 2   gRPC :50062   Raft :4322
+  - seller_server                replica 1  REST :5003
+  - buyer_server                 replica 0  REST :5004
 
+VM3 (seller-server):
+  - customer_database_replicated node 4   gRPC :50051   UDP :6000
+  - product_database_replicated  node 3   gRPC :50052   Raft :4321
+  - seller_server                replica 2  REST :5003
+  - seller_server                replica 3  REST :5013
+  - buyer_server                 replica 1  REST :5004
 
+VM4 (buyer-server):
+  - product_database_replicated  node 4   gRPC :50052   Raft :4321
+  - buyer_server                 replica 2  REST :5004
+  - buyer_server                 replica 3  REST :5014
 
+--------------------------------------------------------------------------------
+0. VM MANAGEMENT
+--------------------------------------------------------------------------------
+
+# Start all VMs:
+gcloud compute instances start customer-db product-db seller-server buyer-server \
+    --zone=us-central1-a --project=ecommerce-pa2-2026
+
+# Stop all VMs:
+gcloud compute instances stop customer-db product-db seller-server buyer-server \
+    --zone=us-central1-a --project=ecommerce-pa2-2026
+
+# Get current external IPs (run after every restart):
+gcloud compute instances list --project=ecommerce-pa2-2026 \
+    --format="table(name,networkInterfaces[0].accessConfigs[0].natIP)"
+
+# SSH into VMs:
+gcloud compute ssh customer-db   --zone=us-central1-a --project=ecommerce-pa2-2026
+gcloud compute ssh product-db    --zone=us-central1-a --project=ecommerce-pa2-2026
+gcloud compute ssh seller-server --zone=us-central1-a --project=ecommerce-pa2-2026
+gcloud compute ssh buyer-server  --zone=us-central1-a --project=ecommerce-pa2-2026
+
+--------------------------------------------------------------------------------
+1. FIRST-TIME SETUP (run once on EACH VM after SSH)
+--------------------------------------------------------------------------------
+
+# Upload code to all VMs (run from local machine):
+for VM in customer-db product-db seller-server buyer-server; do
+    gcloud compute scp --recurse "Marketplace" $VM:~ \
+        --zone=us-central1-a --project=ecommerce-pa2-2026
+done
+
+# On each VM — setup Python venv:
+cd ~/Marketplace
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt
+
+--------------------------------------------------------------------------------
+2. FIREWALL RULES (run once from local machine)
+--------------------------------------------------------------------------------
+
+# Allow UDP for atomic broadcast (customer DB replicas):
+gcloud compute firewall-rules create allow-udp-broadcast \
+    --project=ecommerce-pa2-2026 \
+    --direction=INGRESS --action=ALLOW \
+    --rules=udp:6000-6001 \
+    --source-ranges=10.128.0.0/9 \
+    --description="UDP for atomic broadcast"
+
+# Allow TCP for Raft (product DB replicas):
+gcloud compute firewall-rules create allow-raft \
+    --project=ecommerce-pa2-2026 \
+    --direction=INGRESS --action=ALLOW \
+    --rules=tcp:4321-4322 \
+    --source-ranges=10.128.0.0/9 \
+    --description="TCP for PySyncObj Raft"
+
+# Allow additional gRPC ports:
+gcloud compute firewall-rules create allow-grpc-extra \
+    --project=ecommerce-pa2-2026 \
+    --direction=INGRESS --action=ALLOW \
+    --rules=tcp:50061-50062 \
+    --source-ranges=10.128.0.0/9 \
+    --description="Extra gRPC ports for replicas"
+
+# Allow extra REST ports:
+gcloud compute firewall-rules create allow-rest-extra \
+    --project=ecommerce-pa2-2026 \
+    --direction=INGRESS --action=ALLOW \
+    --rules=tcp:5013-5014 \
+    --source-ranges=0.0.0.0/0 \
+    --description="Extra REST ports for frontend replicas"
+
+================================================================================
+3. START ALL SERVICES (replace <VM1_IP> etc. with actual INTERNAL IPs)
+================================================================================
+
+After getting IPs from section 0, find the INTERNAL IPs:
+gcloud compute instances list --project=ecommerce-pa2-2026 \
+    --format="table(name,networkInterfaces[0].networkIP,networkInterfaces[0].accessConfigs[0].natIP)"
+
+Replace below:
+  <VM1_INT> = customer-db internal IP     (e.g. 10.128.0.5)
+  <VM2_INT> = product-db internal IP      (e.g. 10.128.0.2)
+  <VM3_INT> = seller-server internal IP   (e.g. 10.128.0.3)
+  <VM4_INT> = buyer-server internal IP    (e.g. 10.128.0.4)
+
+  <VM1_EXT> = customer-db external IP
+  <VM2_EXT> = product-db external IP
+  <VM3_EXT> = seller-server external IP
+  <VM4_EXT> = buyer-server external IP
+
+MEMBERS_UDP="<VM1_INT>:6000,<VM1_INT>:6001,<VM2_INT>:6000,<VM2_INT>:6001,<VM3_INT>:6000"
+
+RAFT_ADDRS: node0=<VM1_INT>:4321, node1=<VM2_INT>:4321, node2=<VM2_INT>:4322, node3=<VM3_INT>:4321, node4=<VM4_INT>:4321
+
+CUST_DB_ADDRS="<VM1_INT>:50051,<VM1_INT>:50061,<VM2_INT>:50051,<VM2_INT>:50061,<VM3_INT>:50051"
+PROD_DB_ADDRS="<VM1_INT>:50052,<VM2_INT>:50052,<VM2_INT>:50062,<VM3_INT>:50052,<VM4_INT>:50052"
+
+--------------------------------------------------------------------------------
+3a. ON VM1 (customer-db) — 5 processes
+--------------------------------------------------------------------------------
+
+# Customer DB node 0 (gRPC :50051, UDP :6000)
+nohup ~/Marketplace/venv/bin/python ~/Marketplace/customer_database_replicated.py \
+    --node-id 0 \
+    --members "<VM1_INT>:6000,<VM1_INT>:6001,<VM2_INT>:6000,<VM2_INT>:6001,<VM3_INT>:6000" \
+    --grpc-port 50051 \
+    </dev/null >> ~/cust_db_0.log 2>&1 &
+
+# Customer DB node 1 (gRPC :50061, UDP :6001)
+nohup ~/Marketplace/venv/bin/python ~/Marketplace/customer_database_replicated.py \
+    --node-id 1 \
+    --members "<VM1_INT>:6000,<VM1_INT>:6001,<VM2_INT>:6000,<VM2_INT>:6001,<VM3_INT>:6000" \
+    --grpc-port 50061 \
+    </dev/null >> ~/cust_db_1.log 2>&1 &
+
+# Product DB node 0 (gRPC :50052, Raft :4321)
+nohup ~/Marketplace/venv/bin/python ~/Marketplace/product_database_replicated.py \
+    --raft-addr "<VM1_INT>:4321" \
+    --raft-partners "<VM2_INT>:4321,<VM2_INT>:4322,<VM3_INT>:4321,<VM4_INT>:4321" \
+    --grpc-port 50052 \
+    </dev/null >> ~/prod_db_0.log 2>&1 &
+
+# Seller server replica 0 (REST :5003)
+nohup ~/Marketplace/venv/bin/python ~/Marketplace/seller_server.py \
+    --port 5003 \
+    --customer-db-addrs "<VM1_INT>:50051,<VM1_INT>:50061,<VM2_INT>:50051,<VM2_INT>:50061,<VM3_INT>:50051" \
+    --product-db-addrs "<VM1_INT>:50052,<VM2_INT>:50052,<VM2_INT>:50062,<VM3_INT>:50052,<VM4_INT>:50052" \
+    </dev/null >> ~/seller_0.log 2>&1 &
+
+# Financial service (SOAP :8000)
+nohup ~/Marketplace/venv/bin/python ~/Marketplace/financial_service.py \
+    --host 0.0.0.0 --port 8000 \
+    </dev/null >> ~/financial.log 2>&1 &
+
+--------------------------------------------------------------------------------
+3b. ON VM2 (product-db) — 6 processes
+--------------------------------------------------------------------------------
+
+# Customer DB node 2 (gRPC :50051, UDP :6000)
+nohup ~/Marketplace/venv/bin/python ~/Marketplace/customer_database_replicated.py \
+    --node-id 2 \
+    --members "<VM1_INT>:6000,<VM1_INT>:6001,<VM2_INT>:6000,<VM2_INT>:6001,<VM3_INT>:6000" \
+    --grpc-port 50051 \
+    </dev/null >> ~/cust_db_2.log 2>&1 &
+
+# Customer DB node 3 (gRPC :50061, UDP :6001)
+nohup ~/Marketplace/venv/bin/python ~/Marketplace/customer_database_replicated.py \
+    --node-id 3 \
+    --members "<VM1_INT>:6000,<VM1_INT>:6001,<VM2_INT>:6000,<VM2_INT>:6001,<VM3_INT>:6000" \
+    --grpc-port 50061 \
+    </dev/null >> ~/cust_db_3.log 2>&1 &
+
+# Product DB node 1 (gRPC :50052, Raft :4321)
+nohup ~/Marketplace/venv/bin/python ~/Marketplace/product_database_replicated.py \
+    --raft-addr "<VM2_INT>:4321" \
+    --raft-partners "<VM1_INT>:4321,<VM2_INT>:4322,<VM3_INT>:4321,<VM4_INT>:4321" \
+    --grpc-port 50052 \
+    </dev/null >> ~/prod_db_1.log 2>&1 &
+
+# Product DB node 2 (gRPC :50062, Raft :4322)
+nohup ~/Marketplace/venv/bin/python ~/Marketplace/product_database_replicated.py \
+    --raft-addr "<VM2_INT>:4322" \
+    --raft-partners "<VM1_INT>:4321,<VM2_INT>:4321,<VM3_INT>:4321,<VM4_INT>:4321" \
+    --grpc-port 50062 \
+    </dev/null >> ~/prod_db_2.log 2>&1 &
+
+# Seller server replica 1 (REST :5003)
+nohup ~/Marketplace/venv/bin/python ~/Marketplace/seller_server.py \
+    --port 5003 \
+    --customer-db-addrs "<VM1_INT>:50051,<VM1_INT>:50061,<VM2_INT>:50051,<VM2_INT>:50061,<VM3_INT>:50051" \
+    --product-db-addrs "<VM1_INT>:50052,<VM2_INT>:50052,<VM2_INT>:50062,<VM3_INT>:50052,<VM4_INT>:50052" \
+    </dev/null >> ~/seller_1.log 2>&1 &
+
+# Buyer server replica 0 (REST :5004)
+nohup ~/Marketplace/venv/bin/python ~/Marketplace/buyer_server.py \
+    --port 5004 \
+    --customer-db-addrs "<VM1_INT>:50051,<VM1_INT>:50061,<VM2_INT>:50051,<VM2_INT>:50061,<VM3_INT>:50051" \
+    --product-db-addrs "<VM1_INT>:50052,<VM2_INT>:50052,<VM2_INT>:50062,<VM3_INT>:50052,<VM4_INT>:50052" \
+    --financial-host <VM1_INT> --financial-port 8000 \
+    </dev/null >> ~/buyer_0.log 2>&1 &
+
+--------------------------------------------------------------------------------
+3c. ON VM3 (seller-server) — 5 processes
+--------------------------------------------------------------------------------
+
+# Customer DB node 4 (gRPC :50051, UDP :6000)
+nohup ~/Marketplace/venv/bin/python ~/Marketplace/customer_database_replicated.py \
+    --node-id 4 \
+    --members "<VM1_INT>:6000,<VM1_INT>:6001,<VM2_INT>:6000,<VM2_INT>:6001,<VM3_INT>:6000" \
+    --grpc-port 50051 \
+    </dev/null >> ~/cust_db_4.log 2>&1 &
+
+# Product DB node 3 (gRPC :50052, Raft :4321)
+nohup ~/Marketplace/venv/bin/python ~/Marketplace/product_database_replicated.py \
+    --raft-addr "<VM3_INT>:4321" \
+    --raft-partners "<VM1_INT>:4321,<VM2_INT>:4321,<VM2_INT>:4322,<VM4_INT>:4321" \
+    --grpc-port 50052 \
+    </dev/null >> ~/prod_db_3.log 2>&1 &
+
+# Seller server replica 2 (REST :5003)
+nohup ~/Marketplace/venv/bin/python ~/Marketplace/seller_server.py \
+    --port 5003 \
+    --customer-db-addrs "<VM1_INT>:50051,<VM1_INT>:50061,<VM2_INT>:50051,<VM2_INT>:50061,<VM3_INT>:50051" \
+    --product-db-addrs "<VM1_INT>:50052,<VM2_INT>:50052,<VM2_INT>:50062,<VM3_INT>:50052,<VM4_INT>:50052" \
+    </dev/null >> ~/seller_2.log 2>&1 &
+
+# Seller server replica 3 (REST :5013)
+nohup ~/Marketplace/venv/bin/python ~/Marketplace/seller_server.py \
+    --port 5013 \
+    --customer-db-addrs "<VM1_INT>:50051,<VM1_INT>:50061,<VM2_INT>:50051,<VM2_INT>:50061,<VM3_INT>:50051" \
+    --product-db-addrs "<VM1_INT>:50052,<VM2_INT>:50052,<VM2_INT>:50062,<VM3_INT>:50052,<VM4_INT>:50052" \
+    </dev/null >> ~/seller_3.log 2>&1 &
+
+# Buyer server replica 1 (REST :5004)
+nohup ~/Marketplace/venv/bin/python ~/Marketplace/buyer_server.py \
+    --port 5004 \
+    --customer-db-addrs "<VM1_INT>:50051,<VM1_INT>:50061,<VM2_INT>:50051,<VM2_INT>:50061,<VM3_INT>:50051" \
+    --product-db-addrs "<VM1_INT>:50052,<VM2_INT>:50052,<VM2_INT>:50062,<VM3_INT>:50052,<VM4_INT>:50052" \
+    --financial-host <VM1_INT> --financial-port 8000 \
+    </dev/null >> ~/buyer_1.log 2>&1 &
+
+--------------------------------------------------------------------------------
+3d. ON VM4 (buyer-server) — 3 processes
+--------------------------------------------------------------------------------
+
+# Product DB node 4 (gRPC :50052, Raft :4321)
+nohup ~/Marketplace/venv/bin/python ~/Marketplace/product_database_replicated.py \
+    --raft-addr "<VM4_INT>:4321" \
+    --raft-partners "<VM1_INT>:4321,<VM2_INT>:4321,<VM2_INT>:4322,<VM3_INT>:4321" \
+    --grpc-port 50052 \
+    </dev/null >> ~/prod_db_4.log 2>&1 &
+
+# Buyer server replica 2 (REST :5004)
+nohup ~/Marketplace/venv/bin/python ~/Marketplace/buyer_server.py \
+    --port 5004 \
+    --customer-db-addrs "<VM1_INT>:50051,<VM1_INT>:50061,<VM2_INT>:50051,<VM2_INT>:50061,<VM3_INT>:50051" \
+    --product-db-addrs "<VM1_INT>:50052,<VM2_INT>:50052,<VM2_INT>:50062,<VM3_INT>:50052,<VM4_INT>:50052" \
+    --financial-host <VM1_INT> --financial-port 8000 \
+    </dev/null >> ~/buyer_2.log 2>&1 &
+
+# Buyer server replica 3 (REST :5014)
+nohup ~/Marketplace/venv/bin/python ~/Marketplace/buyer_server.py \
+    --port 5014 \
+    --customer-db-addrs "<VM1_INT>:50051,<VM1_INT>:50061,<VM2_INT>:50051,<VM2_INT>:50061,<VM3_INT>:50051" \
+    --product-db-addrs "<VM1_INT>:50052,<VM2_INT>:50052,<VM2_INT>:50062,<VM3_INT>:50052,<VM4_INT>:50052" \
+    --financial-host <VM1_INT> --financial-port 8000 \
+    </dev/null >> ~/buyer_3.log 2>&1 &
+
+================================================================================
+4. VERIFY ALL SERVICES
+================================================================================
+
+# Check processes on each VM:
+gcloud compute ssh customer-db   --zone=us-central1-a --project=ecommerce-pa2-2026 -- -T "ps aux | grep python | grep -v grep"
+gcloud compute ssh product-db    --zone=us-central1-a --project=ecommerce-pa2-2026 -- -T "ps aux | grep python | grep -v grep"
+gcloud compute ssh seller-server --zone=us-central1-a --project=ecommerce-pa2-2026 -- -T "ps aux | grep python | grep -v grep"
+gcloud compute ssh buyer-server  --zone=us-central1-a --project=ecommerce-pa2-2026 -- -T "ps aux | grep python | grep -v grep"
+
+# Quick REST health check:
+curl http://<VM1_EXT>:5003/seller/account
+curl http://<VM2_EXT>:5003/seller/account
+curl http://<VM3_EXT>:5003/seller/account
+curl http://<VM3_EXT>:5013/seller/account
+curl http://<VM2_EXT>:5004/buyer/account
+curl http://<VM3_EXT>:5004/buyer/account
+curl http://<VM4_EXT>:5004/buyer/account
+curl http://<VM4_EXT>:5014/buyer/account
+
+# Tail logs:
+gcloud compute ssh customer-db --zone=us-central1-a --project=ecommerce-pa2-2026 -- -T "tail -20 ~/cust_db_0.log"
+gcloud compute ssh product-db  --zone=us-central1-a --project=ecommerce-pa2-2026 -- -T "tail -20 ~/prod_db_1.log"
+
+================================================================================
+5. RUNNING CLIENTS (from local machine, with failover)
+================================================================================
+
+cd "ECommerce - PA1/Marketplace"
+
+# Seller client (connects to all 4 seller server replicas):
+.venv/bin/python seller_client.py \
+    --servers "<VM1_EXT>:5003,<VM2_EXT>:5003,<VM3_EXT>:5003,<VM3_EXT>:5013"
+
+# Buyer client (connects to all 4 buyer server replicas):
+.venv/bin/python buyer_client.py \
+    --servers "<VM2_EXT>:5004,<VM3_EXT>:5004,<VM4_EXT>:5004,<VM4_EXT>:5014"
+
+================================================================================
+6. LOCAL TESTING (all on one machine)
+================================================================================
+
+cd "ECommerce - PA1/Marketplace"
+
+# Terminal 1: Financial service (must start first)
+.venv/bin/python financial_service.py
+
+# Terminals 2-6: Customer DB replicas (5 nodes)
+.venv/bin/python customer_database_replicated.py --node-id 0 --members "localhost:6000,localhost:6001,localhost:6002,localhost:6003,localhost:6004" --grpc-port 50051
+.venv/bin/python customer_database_replicated.py --node-id 1 --members "localhost:6000,localhost:6001,localhost:6002,localhost:6003,localhost:6004" --grpc-port 50061
+.venv/bin/python customer_database_replicated.py --node-id 2 --members "localhost:6000,localhost:6001,localhost:6002,localhost:6003,localhost:6004" --grpc-port 50071
+.venv/bin/python customer_database_replicated.py --node-id 3 --members "localhost:6000,localhost:6001,localhost:6002,localhost:6003,localhost:6004" --grpc-port 50081
+.venv/bin/python customer_database_replicated.py --node-id 4 --members "localhost:6000,localhost:6001,localhost:6002,localhost:6003,localhost:6004" --grpc-port 50091
+
+# Terminals 7-11: Product DB replicas (5 nodes)
+.venv/bin/python product_database_replicated.py --raft-addr "localhost:4321" --raft-partners "localhost:4322,localhost:4323,localhost:4324,localhost:4325" --grpc-port 50052
+.venv/bin/python product_database_replicated.py --raft-addr "localhost:4322" --raft-partners "localhost:4321,localhost:4323,localhost:4324,localhost:4325" --grpc-port 50062
+.venv/bin/python product_database_replicated.py --raft-addr "localhost:4323" --raft-partners "localhost:4321,localhost:4322,localhost:4324,localhost:4325" --grpc-port 50072
+.venv/bin/python product_database_replicated.py --raft-addr "localhost:4324" --raft-partners "localhost:4321,localhost:4322,localhost:4323,localhost:4325" --grpc-port 50082
+.venv/bin/python product_database_replicated.py --raft-addr "localhost:4325" --raft-partners "localhost:4321,localhost:4322,localhost:4323,localhost:4324" --grpc-port 50092
+
+# Terminal 12: Seller server
+.venv/bin/python seller_server.py --port 5003 \
+    --customer-db-addrs "localhost:50051,localhost:50061,localhost:50071,localhost:50081,localhost:50091" \
+    --product-db-addrs "localhost:50052,localhost:50062,localhost:50072,localhost:50082,localhost:50092"
+
+# Terminal 13: Buyer server
+.venv/bin/python buyer_server.py --port 5004 \
+    --customer-db-addrs "localhost:50051,localhost:50061,localhost:50071,localhost:50081,localhost:50091" \
+    --product-db-addrs "localhost:50052,localhost:50062,localhost:50072,localhost:50082,localhost:50092" \
+    --financial-host localhost --financial-port 8000
+
+# Clients:
+.venv/bin/python seller_client.py --servers "localhost:5003"
+.venv/bin/python buyer_client.py  --servers "localhost:5004"
+
+================================================================================
+7. BENCHMARK (from local machine)
+================================================================================
+
+cd "ECommerce - PA1/Marketplace"
+
+SELLER_URLS="http://<VM1_EXT>:5003,http://<VM2_EXT>:5003,http://<VM3_EXT>:5003,http://<VM3_EXT>:5013"
+BUYER_URLS="http://<VM2_EXT>:5004,http://<VM3_EXT>:5004,http://<VM4_EXT>:5004,http://<VM4_EXT>:5014"
+
+# Quick test (scenario 1, 1 run, 10 calls, no failure):
+.venv/bin/python benchmark_pa3.py \
+    --seller-urls "$SELLER_URLS" \
+    --buyer-urls "$BUYER_URLS" \
+    --scenarios 1 --runs 1 --calls 10 \
+    --failures no_failure
+
+# Full benchmark — no failure:
+.venv/bin/python benchmark_pa3.py \
+    --seller-urls "$SELLER_URLS" \
+    --buyer-urls "$BUYER_URLS" \
+    --scenarios 1 2 3 --runs 10 --calls 1000 \
+    --failures no_failure
+
+# Full benchmark — all failure scenarios:
+.venv/bin/python benchmark_pa3.py \
+    --seller-urls "$SELLER_URLS" \
+    --buyer-urls "$BUYER_URLS" \
+    --scenarios 1 2 3 --runs 10 --calls 1000 \
+    --failures no_failure frontend_fail follower_fail leader_fail \
+    --gcp-project ecommerce-pa2-2026 --gcp-zone us-central1-a \
+    --kill-frontend-seller "seller-server:seller_server.*5013" \
+    --kill-frontend-buyer "buyer-server:buyer_server.*5014" \
+    --kill-follower "buyer-server:product_database_replicated" \
+    --kill-leader "customer-db:product_database_replicated"
+
+# Results saved to: benchmark_pa3_results.json
+
+================================================================================
+8. FAILURE INJECTION (manual, for testing)
+================================================================================
+
+# Kill a seller server replica on VM3 (port 5013):
+gcloud compute ssh seller-server --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='pkill -f "seller_server.*5013"'
+
+# Kill a buyer server replica on VM4 (port 5014):
+gcloud compute ssh buyer-server --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='pkill -f "buyer_server.*5014"'
+
+# Kill a product DB follower on VM4:
+gcloud compute ssh buyer-server --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='pkill -f "product_database_replicated"'
+
+# Kill the product DB process on VM1 (might be leader):
+gcloud compute ssh customer-db --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='pkill -f "product_database_replicated"'
+
+# Restart a killed process: SSH into the VM and re-run the nohup command from section 3.
+
+================================================================================
+9. KILL ALL PYTHON PROCESSES (cleanup)
+================================================================================
+
+for VM in customer-db product-db seller-server buyer-server; do
+    gcloud compute ssh $VM --zone=us-central1-a --project=ecommerce-pa2-2026 \
+        --command='pkill -f python' 2>/dev/null
+done
+
+================================================================================
+10. PORT REFERENCE
+================================================================================
+
+Component                Replicas  Ports              Protocol  VMs
+------------------------ --------  -----------------  --------  ---------------
+Customer DB (broadcast)  5         50051,50061 gRPC   gRPC      VM1,VM1,VM2,VM2,VM3
+                                   6000,6001 UDP      UDP       VM1,VM1,VM2,VM2,VM3
+Product DB (Raft)        5         50052,50062 gRPC   gRPC      VM1,VM2,VM2,VM3,VM4
+                                   4321,4322 Raft     TCP       VM1,VM2,VM2,VM3,VM4
+Seller Server            4         5003,5013          REST      VM1,VM2,VM3,VM3
+Buyer Server             4         5004,5014          REST      VM2,VM3,VM4,VM4
+Financial Service        1         8000               SOAP      VM1
+
+================================================================================

@@ -2,42 +2,50 @@ import requests
 import json
 import argparse
 
-SERVER_HOST = 'localhost'
-SERVER_PORT = 5004
+# List of (host, port) for all buyer server replicas
+SERVER_ADDRS = [('localhost', 5004)]
+current_server = 0
 
 session_id = None
 buyer_id = None
 pending_cart = []
 
 
-def base_url():
-    return f'http://{SERVER_HOST}:{SERVER_PORT}'
-
-
 def send(method, path, data=None, params=None):
-    global session_id, buyer_id, pending_cart
+    global session_id, buyer_id, pending_cart, current_server
     headers = {'X-Session-ID': session_id} if session_id else {}
-    url = base_url() + path
-    try:
-        if method == 'GET':
-            resp = requests.get(url, headers=headers, params=params)
-        elif method == 'POST':
-            resp = requests.post(url, headers=headers, json=data)
-        elif method == 'PUT':
-            resp = requests.put(url, headers=headers, json=data)
-        elif method == 'DELETE':
-            resp = requests.delete(url, headers=headers)
-        result = resp.json()
-    except Exception as e:
-        return {'status': 'error', 'message': str(e)}
 
-    if result.get('status') == 'error' and 'expired' in result.get('message', '').lower():
-        print("\nSession expired. You have been logged out automatically.")
-        session_id = None
-        buyer_id = None
-        pending_cart = []
+    for i in range(len(SERVER_ADDRS)):
+        idx = (current_server + i) % len(SERVER_ADDRS)
+        host, port = SERVER_ADDRS[idx]
+        url = f'http://{host}:{port}' + path
+        try:
+            if method == 'GET':
+                resp = requests.get(url, headers=headers, params=params, timeout=5)
+            elif method == 'POST':
+                resp = requests.post(url, headers=headers, json=data, timeout=5)
+            elif method == 'PUT':
+                resp = requests.put(url, headers=headers, json=data, timeout=5)
+            elif method == 'DELETE':
+                resp = requests.delete(url, headers=headers, timeout=5)
+            result = resp.json()
 
-    return result
+            current_server = idx  # sticky to working server
+
+            if result.get('status') == 'error' and 'expired' in result.get('message', '').lower():
+                print("\nSession expired. You have been logged out automatically.")
+                session_id = None
+                buyer_id = None
+                pending_cart = []
+
+            return result
+        except (requests.ConnectionError, requests.Timeout):
+            print(f"Server {host}:{port} unreachable, trying next...")
+            continue
+        except Exception as e:
+            return {'status': 'error', 'message': str(e)}
+
+    return {'status': 'error', 'message': 'All servers unreachable'}
 
 
 def parse_item_id(prompt="Item ID (format: [category, item_id], e.g. [1, 1]): "):
@@ -342,11 +350,14 @@ def main():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Buyer Client')
-    parser.add_argument('--host', default='localhost')
-    parser.add_argument('--port', type=int, default=5004)
+    parser.add_argument('--servers', type=str, default='localhost:5004',
+                        help='Comma-separated buyer server addresses (host:port)')
     args = parser.parse_args()
 
-    SERVER_HOST = args.host
-    SERVER_PORT = args.port
+    SERVER_ADDRS = []
+    for entry in args.servers.split(','):
+        host, port = entry.strip().rsplit(':', 1)
+        SERVER_ADDRS.append((host, int(port)))
 
+    print(f"Configured servers: {SERVER_ADDRS}")
     main()
