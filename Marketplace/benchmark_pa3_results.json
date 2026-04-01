@@ -1,0 +1,294 @@
+[
+  {
+    "concurrency": "Scenario 1",
+    "failure": "no_failure",
+    "sellers": 1,
+    "buyers": 1,
+    "per_function": {
+      "buyer.create_account": {
+        "avg_ms": 158.952,
+        "stdev_ms": 70.521
+      },
+      "buyer.get_item": {
+        "avg_ms": 127.063,
+        "stdev_ms": 1.003
+      },
+      "buyer.get_seller_rating": {
+        "avg_ms": 128.999,
+        "stdev_ms": 1.143
+      },
+      "buyer.login": {
+        "avg_ms": 129.278,
+        "stdev_ms": 12.127
+      },
+      "buyer.logout": {
+        "avg_ms": 148.985,
+        "stdev_ms": 10.142
+      },
+      "buyer.save_cart": {
+        "avg_ms": 325.887,
+        "stdev_ms": 10.032
+      },
+      "buyer.search_items": {
+        "avg_ms": 131.495,
+        "stdev_ms": 8.037
+      },
+      "buyer.validate_cart": {
+        "avg_ms": 128.023,
+        "stdev_ms": 1.913
+      },
+      "seller.change_price": {
+        "avg_ms": 320.431,
+        "stdev_ms": 11.478
+      },
+      "seller.change_quantity": {
+        "avg_ms": 309.709,
+        "stdev_ms": 3.699
+      },
+      "seller.create_account": {
+        "avg_ms": 140.296,
+        "stdev_ms": 17.091
+      },
+      "seller.get_seller_items": {
+        "avg_ms": 127.067,
+        "stdev_ms": 1.327
+      },
+      "seller.get_seller_rating": {
+        "avg_ms": 126.396,
+        "stdev_ms": 2.912
+      },
+      "seller.login": {
+        "avg_ms": 127.846,
+        "stdev_ms": 12.712
+      },
+      "seller.logout": {
+        "avg_ms": 150.769,
+        "stdev_ms": 11.906
+      },
+      "seller.register_item": {
+        "avg_ms": 328.581,
+        "stdev_ms": 13.788
+      }
+    },
+    "avg_throughput_ops_per_s": 8.335094902476245
+  },
+  {
+    "concurrency": "Scenario 1",
+    "failure": "frontend_fail",
+    "sellers": 1,
+    "buyers": 1,
+    "per_function": {
+      "buyer.create_account": {
+        "avg_ms": 131.549,
+        "stdev_ms": 17.108
+      },
+      "buyer.get_item": {
+        "avg_ms": 133.339,
+        "stdev_ms": 3.856
+      },
+      "buyer.get_seller_rating": {
+        "avg_ms": 136.283,
+        "stdev_ms": 2.574
+      },
+      "buyer.login": {
+        "avg_ms": 129.151,
+        "stdev_ms": 7.914
+      },
+      "buyer.logout": {
+        "avg_ms": 158.953,
+        "stdev_ms": 12.294
+      },
+      "buyer.save_cart": {
+        "avg_ms": 349.211,
+        "stdev_ms": 5.133
+      },
+      "buyer.search_items": {
+        "avg_ms": 155.402,
+        "stdev_ms": 5.403
+      },
+      "buyer.validate_cart": {
+        "avg_ms": 135.599,
+        "stdev_ms": 5.207
+      },
+      "seller.change_price": {
+        "avg_ms": 348.488,
+        "stdev_ms": 7.684
+      },
+      "seller.change_quantity": {
+        "avg_ms": 310.181,
+        "stdev_ms": 6.804
+      },
+      "seller.create_account": {
+        "avg_ms": 150.917,
+        "stdev_ms": 12.191
+      },
+      "seller.get_seller_items": {
+        "avg_ms": 132.118,
+        "stdev_ms": 1.839
+      },
+      "seller.get_seller_rating": {
+        "avg_ms": 130.146,
+        "stdev_ms": 0.941
+      },
+      "seller.login": {
+        "avg_ms": 133.353,
+        "stdev_ms": 15.517
+      },
+      "seller.logout": {
+        "avg_ms": 157.947,
+        "stdev_ms": 10.926
+      },
+      "seller.register_item": {
+        "avg_ms": 348.04,
+        "stdev_ms": 16.164
+      }
+    },
+    "avg_throughput_ops_per_s": 7.9567955891293325
+  },
+  {
+    "concurrency": "Scenario 1",
+    "failure": "follower_fail",
+    "sellers": 1,
+    "buyers": 1,
+    "per_function": {
+      "buyer.create_account": {
+        "avg_ms": 455.056,
+        "stdev_ms": 171.086
+      },
+      "buyer.get_item": {
+        "avg_ms": 431.376,
+        "stdev_ms": 126.191
+      },
+      "buyer.get_seller_rating": {
+        "avg_ms": 416.317,
+        "stdev_ms": 98.991
+      },
+      "buyer.login": {
+        "avg_ms": 356.602,
+        "stdev_ms": 149.322
+      },
+      "buyer.logout": {
+        "avg_ms": 673.822,
+        "stdev_ms": 100.97
+      },
+      "buyer.save_cart": {
+        "avg_ms": 917.061,
+        "stdev_ms": 213.838
+      },
+      "buyer.search_items": {
+        "avg_ms": 593.208,
+        "stdev_ms": 195.072
+      },
+      "buyer.validate_cart": {
+        "avg_ms": 433.268,
+        "stdev_ms": 80.899
+      },
+      "seller.change_price": {
+        "avg_ms": 971.17,
+        "stdev_ms": 169.129
+      },
+      "seller.change_quantity": {
+        "avg_ms": 952.07,
+        "stdev_ms": 223.84
+      },
+      "seller.create_account": {
+        "avg_ms": 380.878,
+        "stdev_ms": 240.245
+      },
+      "seller.get_seller_items": {
+        "avg_ms": 451.674,
+        "stdev_ms": 46.749
+      },
+      "seller.get_seller_rating": {
+        "avg_ms": 469.95,
+        "stdev_ms": 97.355
+      },
+      "seller.login": {
+        "avg_ms": 557.092,
+        "stdev_ms": 307.554
+      },
+      "seller.logout": {
+        "avg_ms": 662.776,
+        "stdev_ms": 133.346
+      },
+      "seller.register_item": {
+        "avg_ms": 993.392,
+        "stdev_ms": 154.199
+      }
+    },
+    "avg_throughput_ops_per_s": 2.6862294801651934
+  },
+  {
+    "concurrency": "Scenario 1",
+    "failure": "leader_fail",
+    "sellers": 1,
+    "buyers": 1,
+    "per_function": {
+      "buyer.create_account": {
+        "avg_ms": 544.902,
+        "stdev_ms": 180.356
+      },
+      "buyer.get_item": {
+        "avg_ms": 570.287,
+        "stdev_ms": 17.406
+      },
+      "buyer.get_seller_rating": {
+        "avg_ms": 584.573,
+        "stdev_ms": 69.203
+      },
+      "buyer.login": {
+        "avg_ms": 596.678,
+        "stdev_ms": 143.127
+      },
+      "buyer.logout": {
+        "avg_ms": 881.57,
+        "stdev_ms": 194.779
+      },
+      "buyer.save_cart": {
+        "avg_ms": 1072.699,
+        "stdev_ms": 40.85
+      },
+      "buyer.search_items": {
+        "avg_ms": 775.371,
+        "stdev_ms": 34.182
+      },
+      "buyer.validate_cart": {
+        "avg_ms": 620.365,
+        "stdev_ms": 69.835
+      },
+      "seller.change_price": {
+        "avg_ms": 1131.149,
+        "stdev_ms": 59.528
+      },
+      "seller.change_quantity": {
+        "avg_ms": 1169.809,
+        "stdev_ms": 113.16
+      },
+      "seller.create_account": {
+        "avg_ms": 587.579,
+        "stdev_ms": 135.01
+      },
+      "seller.get_seller_items": {
+        "avg_ms": 580.554,
+        "stdev_ms": 34.16
+      },
+      "seller.get_seller_rating": {
+        "avg_ms": 590.866,
+        "stdev_ms": 80.118
+      },
+      "seller.login": {
+        "avg_ms": 614.351,
+        "stdev_ms": 256.163
+      },
+      "seller.logout": {
+        "avg_ms": 731.006,
+        "stdev_ms": 274.326
+      },
+      "seller.register_item": {
+        "avg_ms": 1118.433,
+        "stdev_ms": 94.515
+      }
+    },
+    "avg_throughput_ops_per_s": 2.2001317841360226
+  }
+]
