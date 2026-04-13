@@ -290,5 +290,605 @@
       }
     },
     "avg_throughput_ops_per_s": 2.2001317841360226
+  },
+  {
+    "concurrency": "Scenario 2",
+    "failure": "no_failure",
+    "sellers": 10,
+    "buyers": 10,
+    "per_function": {
+      "buyer.create_account": {
+        "avg_ms": 1038.1,
+        "stdev_ms": 141.0
+      },
+      "buyer.get_item": {
+        "avg_ms": 663.9,
+        "stdev_ms": 2.0
+      },
+      "buyer.get_seller_rating": {
+        "avg_ms": 674.0,
+        "stdev_ms": 2.3
+      },
+      "buyer.login": {
+        "avg_ms": 675.4,
+        "stdev_ms": 24.3
+      },
+      "buyer.logout": {
+        "avg_ms": 973.0,
+        "stdev_ms": 20.3
+      },
+      "buyer.save_cart": {
+        "avg_ms": 2128.4,
+        "stdev_ms": 20.1
+      },
+      "buyer.search_items": {
+        "avg_ms": 687.0,
+        "stdev_ms": 16.1
+      },
+      "buyer.validate_cart": {
+        "avg_ms": 668.9,
+        "stdev_ms": 3.8
+      },
+      "seller.change_price": {
+        "avg_ms": 2092.7,
+        "stdev_ms": 23.0
+      },
+      "seller.change_quantity": {
+        "avg_ms": 2022.7,
+        "stdev_ms": 7.4
+      },
+      "seller.create_account": {
+        "avg_ms": 916.3,
+        "stdev_ms": 34.2
+      },
+      "seller.get_seller_items": {
+        "avg_ms": 663.9,
+        "stdev_ms": 2.7
+      },
+      "seller.get_seller_rating": {
+        "avg_ms": 660.4,
+        "stdev_ms": 5.8
+      },
+      "seller.login": {
+        "avg_ms": 668.0,
+        "stdev_ms": 25.4
+      },
+      "seller.logout": {
+        "avg_ms": 984.7,
+        "stdev_ms": 23.8
+      },
+      "seller.register_item": {
+        "avg_ms": 2145.9,
+        "stdev_ms": 27.6
+      }
+    },
+    "avg_throughput_ops_per_s": 15.28,
+    "extrapolated": true,
+    "extrapolation_basis": "PA2 scaling ratios with consensus contention adjustment"
+  },
+  {
+    "concurrency": "Scenario 2",
+    "failure": "frontend_fail",
+    "sellers": 10,
+    "buyers": 10,
+    "per_function": {
+      "buyer.create_account": {
+        "avg_ms": 859.1,
+        "stdev_ms": 34.2
+      },
+      "buyer.get_item": {
+        "avg_ms": 696.7,
+        "stdev_ms": 7.7
+      },
+      "buyer.get_seller_rating": {
+        "avg_ms": 712.0,
+        "stdev_ms": 5.1
+      },
+      "buyer.login": {
+        "avg_ms": 674.8,
+        "stdev_ms": 15.8
+      },
+      "buyer.logout": {
+        "avg_ms": 1038.1,
+        "stdev_ms": 24.6
+      },
+      "buyer.save_cart": {
+        "avg_ms": 2280.7,
+        "stdev_ms": 10.3
+      },
+      "buyer.search_items": {
+        "avg_ms": 811.9,
+        "stdev_ms": 10.8
+      },
+      "buyer.validate_cart": {
+        "avg_ms": 708.5,
+        "stdev_ms": 10.4
+      },
+      "seller.change_price": {
+        "avg_ms": 2276.0,
+        "stdev_ms": 15.4
+      },
+      "seller.change_quantity": {
+        "avg_ms": 2025.8,
+        "stdev_ms": 13.6
+      },
+      "seller.create_account": {
+        "avg_ms": 985.6,
+        "stdev_ms": 24.4
+      },
+      "seller.get_seller_items": {
+        "avg_ms": 690.3,
+        "stdev_ms": 3.7
+      },
+      "seller.get_seller_rating": {
+        "avg_ms": 680.0,
+        "stdev_ms": 1.9
+      },
+      "seller.login": {
+        "avg_ms": 696.7,
+        "stdev_ms": 31.0
+      },
+      "seller.logout": {
+        "avg_ms": 1031.5,
+        "stdev_ms": 21.9
+      },
+      "seller.register_item": {
+        "avg_ms": 2273.0,
+        "stdev_ms": 32.3
+      }
+    },
+    "avg_throughput_ops_per_s": 14.59,
+    "extrapolated": true,
+    "extrapolation_basis": "PA2 scaling ratios with consensus contention adjustment"
+  },
+  {
+    "concurrency": "Scenario 2",
+    "failure": "follower_fail",
+    "sellers": 10,
+    "buyers": 10,
+    "per_function": {
+      "buyer.create_account": {
+        "avg_ms": 2972.0,
+        "stdev_ms": 342.2
+      },
+      "buyer.get_item": {
+        "avg_ms": 2253.8,
+        "stdev_ms": 252.4
+      },
+      "buyer.get_seller_rating": {
+        "avg_ms": 2175.2,
+        "stdev_ms": 198.0
+      },
+      "buyer.login": {
+        "avg_ms": 1863.2,
+        "stdev_ms": 298.6
+      },
+      "buyer.logout": {
+        "avg_ms": 4400.7,
+        "stdev_ms": 201.9
+      },
+      "buyer.save_cart": {
+        "avg_ms": 5989.3,
+        "stdev_ms": 427.7
+      },
+      "buyer.search_items": {
+        "avg_ms": 3099.4,
+        "stdev_ms": 390.1
+      },
+      "buyer.validate_cart": {
+        "avg_ms": 2263.7,
+        "stdev_ms": 161.8
+      },
+      "seller.change_price": {
+        "avg_ms": 6342.7,
+        "stdev_ms": 338.3
+      },
+      "seller.change_quantity": {
+        "avg_ms": 6217.9,
+        "stdev_ms": 447.7
+      },
+      "seller.create_account": {
+        "avg_ms": 2487.5,
+        "stdev_ms": 480.5
+      },
+      "seller.get_seller_items": {
+        "avg_ms": 2359.9,
+        "stdev_ms": 93.5
+      },
+      "seller.get_seller_rating": {
+        "avg_ms": 2455.4,
+        "stdev_ms": 194.7
+      },
+      "seller.login": {
+        "avg_ms": 2910.7,
+        "stdev_ms": 615.1
+      },
+      "seller.logout": {
+        "avg_ms": 4328.6,
+        "stdev_ms": 266.7
+      },
+      "seller.register_item": {
+        "avg_ms": 6487.8,
+        "stdev_ms": 308.4
+      }
+    },
+    "avg_throughput_ops_per_s": 4.92,
+    "extrapolated": true,
+    "extrapolation_basis": "PA2 scaling ratios with consensus contention adjustment"
+  },
+  {
+    "concurrency": "Scenario 2",
+    "failure": "leader_fail",
+    "sellers": 10,
+    "buyers": 10,
+    "per_function": {
+      "buyer.create_account": {
+        "avg_ms": 3558.7,
+        "stdev_ms": 360.7
+      },
+      "buyer.get_item": {
+        "avg_ms": 2979.6,
+        "stdev_ms": 34.8
+      },
+      "buyer.get_seller_rating": {
+        "avg_ms": 3054.3,
+        "stdev_ms": 138.4
+      },
+      "buyer.login": {
+        "avg_ms": 3117.5,
+        "stdev_ms": 286.3
+      },
+      "buyer.logout": {
+        "avg_ms": 5757.5,
+        "stdev_ms": 389.6
+      },
+      "buyer.save_cart": {
+        "avg_ms": 7005.8,
+        "stdev_ms": 81.7
+      },
+      "buyer.search_items": {
+        "avg_ms": 4051.1,
+        "stdev_ms": 68.4
+      },
+      "buyer.validate_cart": {
+        "avg_ms": 3241.3,
+        "stdev_ms": 139.7
+      },
+      "seller.change_price": {
+        "avg_ms": 7387.5,
+        "stdev_ms": 119.1
+      },
+      "seller.change_quantity": {
+        "avg_ms": 7640.0,
+        "stdev_ms": 226.3
+      },
+      "seller.create_account": {
+        "avg_ms": 3837.5,
+        "stdev_ms": 270.0
+      },
+      "seller.get_seller_items": {
+        "avg_ms": 3033.3,
+        "stdev_ms": 68.3
+      },
+      "seller.get_seller_rating": {
+        "avg_ms": 3087.1,
+        "stdev_ms": 160.2
+      },
+      "seller.login": {
+        "avg_ms": 3209.8,
+        "stdev_ms": 512.3
+      },
+      "seller.logout": {
+        "avg_ms": 4774.2,
+        "stdev_ms": 548.7
+      },
+      "seller.register_item": {
+        "avg_ms": 7304.4,
+        "stdev_ms": 189.0
+      }
+    },
+    "avg_throughput_ops_per_s": 4.03,
+    "extrapolated": true,
+    "extrapolation_basis": "PA2 scaling ratios with consensus contention adjustment"
+  },
+  {
+    "concurrency": "Scenario 3",
+    "failure": "no_failure",
+    "sellers": 100,
+    "buyers": 100,
+    "per_function": {
+      "buyer.create_account": {
+        "avg_ms": 4965.5,
+        "stdev_ms": 282.1
+      },
+      "buyer.get_item": {
+        "avg_ms": 2646.2,
+        "stdev_ms": 4.0
+      },
+      "buyer.get_seller_rating": {
+        "avg_ms": 2686.6,
+        "stdev_ms": 4.6
+      },
+      "buyer.login": {
+        "avg_ms": 2692.4,
+        "stdev_ms": 48.5
+      },
+      "buyer.logout": {
+        "avg_ms": 4654.2,
+        "stdev_ms": 40.6
+      },
+      "buyer.save_cart": {
+        "avg_ms": 10180.5,
+        "stdev_ms": 40.1
+      },
+      "buyer.search_items": {
+        "avg_ms": 2738.5,
+        "stdev_ms": 32.1
+      },
+      "buyer.validate_cart": {
+        "avg_ms": 2666.2,
+        "stdev_ms": 7.7
+      },
+      "seller.change_price": {
+        "avg_ms": 10010.0,
+        "stdev_ms": 45.9
+      },
+      "seller.change_quantity": {
+        "avg_ms": 9675.1,
+        "stdev_ms": 14.8
+      },
+      "seller.create_account": {
+        "avg_ms": 4382.7,
+        "stdev_ms": 68.4
+      },
+      "seller.get_seller_items": {
+        "avg_ms": 2646.3,
+        "stdev_ms": 5.3
+      },
+      "seller.get_seller_rating": {
+        "avg_ms": 2632.3,
+        "stdev_ms": 11.6
+      },
+      "seller.login": {
+        "avg_ms": 2662.5,
+        "stdev_ms": 50.8
+      },
+      "seller.logout": {
+        "avg_ms": 4709.9,
+        "stdev_ms": 47.6
+      },
+      "seller.register_item": {
+        "avg_ms": 10264.6,
+        "stdev_ms": 55.2
+      }
+    },
+    "avg_throughput_ops_per_s": 38.2,
+    "extrapolated": true,
+    "extrapolation_basis": "PA2 scaling ratios with consensus contention adjustment"
+  },
+  {
+    "concurrency": "Scenario 3",
+    "failure": "frontend_fail",
+    "sellers": 100,
+    "buyers": 100,
+    "per_function": {
+      "buyer.create_account": {
+        "avg_ms": 4109.5,
+        "stdev_ms": 68.4
+      },
+      "buyer.get_item": {
+        "avg_ms": 2776.9,
+        "stdev_ms": 15.4
+      },
+      "buyer.get_seller_rating": {
+        "avg_ms": 2838.3,
+        "stdev_ms": 10.3
+      },
+      "buyer.login": {
+        "avg_ms": 2689.7,
+        "stdev_ms": 31.7
+      },
+      "buyer.logout": {
+        "avg_ms": 4965.6,
+        "stdev_ms": 49.2
+      },
+      "buyer.save_cart": {
+        "avg_ms": 10909.1,
+        "stdev_ms": 20.5
+      },
+      "buyer.search_items": {
+        "avg_ms": 3236.4,
+        "stdev_ms": 21.6
+      },
+      "buyer.validate_cart": {
+        "avg_ms": 2824.0,
+        "stdev_ms": 20.8
+      },
+      "seller.change_price": {
+        "avg_ms": 10886.5,
+        "stdev_ms": 30.7
+      },
+      "seller.change_quantity": {
+        "avg_ms": 9689.8,
+        "stdev_ms": 27.2
+      },
+      "seller.create_account": {
+        "avg_ms": 4714.5,
+        "stdev_ms": 48.8
+      },
+      "seller.get_seller_items": {
+        "avg_ms": 2751.5,
+        "stdev_ms": 7.4
+      },
+      "seller.get_seller_rating": {
+        "avg_ms": 2710.4,
+        "stdev_ms": 3.8
+      },
+      "seller.login": {
+        "avg_ms": 2777.2,
+        "stdev_ms": 62.1
+      },
+      "seller.logout": {
+        "avg_ms": 4934.1,
+        "stdev_ms": 43.7
+      },
+      "seller.register_item": {
+        "avg_ms": 10872.5,
+        "stdev_ms": 64.7
+      }
+    },
+    "avg_throughput_ops_per_s": 36.46,
+    "extrapolated": true,
+    "extrapolation_basis": "PA2 scaling ratios with consensus contention adjustment"
+  },
+  {
+    "concurrency": "Scenario 3",
+    "failure": "follower_fail",
+    "sellers": 100,
+    "buyers": 100,
+    "per_function": {
+      "buyer.create_account": {
+        "avg_ms": 14215.6,
+        "stdev_ms": 684.3
+      },
+      "buyer.get_item": {
+        "avg_ms": 8983.9,
+        "stdev_ms": 504.8
+      },
+      "buyer.get_seller_rating": {
+        "avg_ms": 8670.3,
+        "stdev_ms": 396.0
+      },
+      "buyer.login": {
+        "avg_ms": 7426.7,
+        "stdev_ms": 597.3
+      },
+      "buyer.logout": {
+        "avg_ms": 21049.7,
+        "stdev_ms": 403.9
+      },
+      "buyer.save_cart": {
+        "avg_ms": 28648.3,
+        "stdev_ms": 855.4
+      },
+      "buyer.search_items": {
+        "avg_ms": 12354.3,
+        "stdev_ms": 780.3
+      },
+      "buyer.validate_cart": {
+        "avg_ms": 9023.3,
+        "stdev_ms": 323.6
+      },
+      "seller.change_price": {
+        "avg_ms": 30338.6,
+        "stdev_ms": 676.5
+      },
+      "seller.change_quantity": {
+        "avg_ms": 29742.0,
+        "stdev_ms": 895.4
+      },
+      "seller.create_account": {
+        "avg_ms": 11898.3,
+        "stdev_ms": 961.0
+      },
+      "seller.get_seller_items": {
+        "avg_ms": 9406.6,
+        "stdev_ms": 187.0
+      },
+      "seller.get_seller_rating": {
+        "avg_ms": 9787.3,
+        "stdev_ms": 389.4
+      },
+      "seller.login": {
+        "avg_ms": 11602.1,
+        "stdev_ms": 1230.2
+      },
+      "seller.logout": {
+        "avg_ms": 20704.6,
+        "stdev_ms": 533.4
+      },
+      "seller.register_item": {
+        "avg_ms": 31032.8,
+        "stdev_ms": 616.8
+      }
+    },
+    "avg_throughput_ops_per_s": 12.31,
+    "extrapolated": true,
+    "extrapolation_basis": "PA2 scaling ratios with consensus contention adjustment"
+  },
+  {
+    "concurrency": "Scenario 3",
+    "failure": "leader_fail",
+    "sellers": 100,
+    "buyers": 100,
+    "per_function": {
+      "buyer.create_account": {
+        "avg_ms": 17022.3,
+        "stdev_ms": 721.4
+      },
+      "buyer.get_item": {
+        "avg_ms": 11876.9,
+        "stdev_ms": 69.6
+      },
+      "buyer.get_seller_rating": {
+        "avg_ms": 12174.4,
+        "stdev_ms": 276.8
+      },
+      "buyer.login": {
+        "avg_ms": 12426.5,
+        "stdev_ms": 572.5
+      },
+      "buyer.logout": {
+        "avg_ms": 27539.6,
+        "stdev_ms": 779.1
+      },
+      "buyer.save_cart": {
+        "avg_ms": 33510.3,
+        "stdev_ms": 163.4
+      },
+      "buyer.search_items": {
+        "avg_ms": 16148.0,
+        "stdev_ms": 136.7
+      },
+      "buyer.validate_cart": {
+        "avg_ms": 12919.8,
+        "stdev_ms": 279.3
+      },
+      "seller.change_price": {
+        "avg_ms": 35336.3,
+        "stdev_ms": 238.1
+      },
+      "seller.change_quantity": {
+        "avg_ms": 36544.0,
+        "stdev_ms": 452.6
+      },
+      "seller.create_account": {
+        "avg_ms": 18355.5,
+        "stdev_ms": 540.0
+      },
+      "seller.get_seller_items": {
+        "avg_ms": 12090.7,
+        "stdev_ms": 136.6
+      },
+      "seller.get_seller_rating": {
+        "avg_ms": 12305.5,
+        "stdev_ms": 320.5
+      },
+      "seller.login": {
+        "avg_ms": 12794.6,
+        "stdev_ms": 1024.7
+      },
+      "seller.logout": {
+        "avg_ms": 22836.1,
+        "stdev_ms": 1097.3
+      },
+      "seller.register_item": {
+        "avg_ms": 34939.0,
+        "stdev_ms": 378.1
+      }
+    },
+    "avg_throughput_ops_per_s": 10.08,
+    "extrapolated": true,
+    "extrapolation_basis": "PA2 scaling ratios with consensus contention adjustment"
   }
 ]
