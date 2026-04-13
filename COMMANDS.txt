@@ -450,4 +450,408 @@ Seller Server            4         5003,5013          REST      VM1,VM2,VM3,VM3
 Buyer Server             4         5004,5014          REST      VM2,VM3,VM4,VM4
 Financial Service        1         8000               SOAP      VM1
 
+
+################################################################################
+#                                                                              #
+#                         PA3 DEMO WALKTHROUGH                                 #
+#                                                                              #
+#  Step-by-step commands to demonstrate all PA3 features.                      #
+#  Assumes all 19 processes are running (section 3) and IPs are known.         #
+#  Can be run on GCP or locally (section 6). Commands below use GCP;           #
+#  for local, replace <VM*_EXT>:port with localhost:port.                      #
+#                                                                              #
+################################################################################
+
+================================================================================
+DEMO 1: Show All 19 Processes Running
+================================================================================
+
+# Verify process count on each VM:
+echo "=== VM1 (customer-db) — expect 5 processes ==="
+gcloud compute ssh customer-db --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='ps aux | grep "[p]ython" | wc -l'
+
+echo "=== VM2 (product-db) — expect 6 processes ==="
+gcloud compute ssh product-db --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='ps aux | grep "[p]ython" | wc -l'
+
+echo "=== VM3 (seller-server) — expect 5 processes ==="
+gcloud compute ssh seller-server --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='ps aux | grep "[p]ython" | wc -l'
+
+echo "=== VM4 (buyer-server) — expect 3 processes ==="
+gcloud compute ssh buyer-server --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='ps aux | grep "[p]ython" | wc -l'
+
+# Show what's running on each VM (detailed):
+for VM in customer-db product-db seller-server buyer-server; do
+    echo ""
+    echo "=== $VM ==="
+    gcloud compute ssh $VM --zone=us-central1-a --project=ecommerce-pa2-2026 \
+        --command='ps aux | grep "[p]ython" | grep -v pip'
+done
+
+================================================================================
+DEMO 2: Normal Operation — Seller Creates Account + Lists Item
+================================================================================
+
+# Create a seller account (hits one of the 4 seller server replicas):
+curl -s -X POST http://<VM1_EXT>:5003/seller/account \
+    -H "Content-Type: application/json" \
+    -d '{"username":"demo_seller","password":"pass123","name":"Demo Seller"}' | python3 -m json.tool
+
+# Login (returns session_id and seller_id):
+curl -s -X POST http://<VM1_EXT>:5003/seller/login \
+    -H "Content-Type: application/json" \
+    -d '{"username":"demo_seller","password":"pass123"}' | python3 -m json.tool
+# NOTE: Save the session_id from the response. Use it in the commands below.
+
+# Register an item (replace <SESSION_ID> with actual value):
+curl -s -X POST http://<VM1_EXT>:5003/seller/items \
+    -H "Content-Type: application/json" \
+    -H "X-Session-ID: <SESSION_ID>" \
+    -d '{"name":"Demo Laptop","category":0,"keywords":["laptop","computer"],"condition":"new","price":999.99,"quantity":10}' | python3 -m json.tool
+
+# List seller's items:
+curl -s http://<VM1_EXT>:5003/seller/items \
+    -H "X-Session-ID: <SESSION_ID>" | python3 -m json.tool
+
+================================================================================
+DEMO 3: Normal Operation — Buyer Searches + Purchases
+================================================================================
+
+# Create a buyer account:
+curl -s -X POST http://<VM2_EXT>:5004/buyer/account \
+    -H "Content-Type: application/json" \
+    -d '{"username":"demo_buyer","password":"pass123","name":"Demo Buyer"}' | python3 -m json.tool
+
+# Login:
+curl -s -X POST http://<VM2_EXT>:5004/buyer/login \
+    -H "Content-Type: application/json" \
+    -d '{"username":"demo_buyer","password":"pass123"}' | python3 -m json.tool
+# NOTE: Save the session_id.
+
+# Search for items with keyword "laptop":
+curl -s "http://<VM2_EXT>:5004/buyer/items?keywords=laptop" \
+    -H "X-Session-ID: <SESSION_ID>" | python3 -m json.tool
+
+# Add to cart and save:
+curl -s -X PUT http://<VM2_EXT>:5004/buyer/cart \
+    -H "Content-Type: application/json" \
+    -H "X-Session-ID: <SESSION_ID>" \
+    -d '{"cart":[{"item_id":[0,1],"quantity":2}]}' | python3 -m json.tool
+
+# Make a purchase (90% chance of approval):
+curl -s -X POST http://<VM2_EXT>:5004/buyer/purchase \
+    -H "Content-Type: application/json" \
+    -H "X-Session-ID: <SESSION_ID>" \
+    -d '{"item_id":[0,1],"quantity":1,"name":"Demo Buyer","card_number":"4111111111111111","expiration_date":"12/28","security_code":"123"}' | python3 -m json.tool
+
+# View purchase history:
+curl -s http://<VM2_EXT>:5004/buyer/purchases \
+    -H "X-Session-ID: <SESSION_ID>" | python3 -m json.tool
+
+================================================================================
+DEMO 4: Customer DB Replication (Atomic Broadcast)
+================================================================================
+# GOAL: Show that a user created via one replica is visible on ALL replicas.
+
+# Create an account through seller server on VM1 (which talks to customer DB):
+curl -s -X POST http://<VM1_EXT>:5003/seller/account \
+    -H "Content-Type: application/json" \
+    -d '{"username":"replicated_user","password":"test","name":"Replicated User"}' | python3 -m json.tool
+
+# Now query the customer DB on EACH replica directly via gRPC.
+# We use the seller server on different VMs — each uses its StubPool
+# which connects to different customer DB replicas.
+
+# Query via VM1 seller server (talks to customer DB replicas on VM1 first):
+curl -s -X POST http://<VM1_EXT>:5003/seller/login \
+    -H "Content-Type: application/json" \
+    -d '{"username":"replicated_user","password":"test"}' | python3 -m json.tool
+
+# Query via VM2 seller server (talks to customer DB replicas on VM2 first):
+curl -s -X POST http://<VM2_EXT>:5003/seller/login \
+    -H "Content-Type: application/json" \
+    -d '{"username":"replicated_user","password":"test"}' | python3 -m json.tool
+
+# Query via VM3 seller server (talks to customer DB replica on VM3 first):
+curl -s -X POST http://<VM3_EXT>:5003/seller/login \
+    -H "Content-Type: application/json" \
+    -d '{"username":"replicated_user","password":"test"}' | python3 -m json.tool
+
+# ALL THREE should succeed — proves the user was replicated across all nodes.
+
+# INSPECT the SQLite database files directly on different VMs:
+echo "=== Customer DB on VM1 (nodes 0,1) ==="
+gcloud compute ssh customer-db --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='sqlite3 ~/customer_data_node0.db "SELECT user_id, username, name, user_type FROM users;"'
+
+echo "=== Customer DB on VM2 (nodes 2,3) ==="
+gcloud compute ssh product-db --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='sqlite3 ~/customer_data_node2.db "SELECT user_id, username, name, user_type FROM users;"'
+
+echo "=== Customer DB on VM3 (node 4) ==="
+gcloud compute ssh seller-server --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='sqlite3 ~/customer_data_node4.db "SELECT user_id, username, name, user_type FROM users;"'
+
+# All three should show the SAME rows — proves atomic broadcast replication.
+
+# You can also show sessions are replicated:
+echo "=== Sessions on node 0 (VM1) ==="
+gcloud compute ssh customer-db --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='sqlite3 ~/customer_data_node0.db "SELECT session_id, user_id, user_type FROM sessions;"'
+
+echo "=== Sessions on node 2 (VM2) ==="
+gcloud compute ssh product-db --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='sqlite3 ~/customer_data_node2.db "SELECT session_id, user_id, user_type FROM sessions;"'
+
+================================================================================
+DEMO 5: Product DB Replication (Raft)
+================================================================================
+# GOAL: Show that an item registered via one replica is visible on ALL replicas.
+# Product DB is in-memory (PySyncObj), so we inspect via gRPC reads, not files.
+
+# First, make sure we have a seller session (from Demo 2 above).
+
+# Register an item via seller server on VM1:
+curl -s -X POST http://<VM1_EXT>:5003/seller/items \
+    -H "Content-Type: application/json" \
+    -H "X-Session-ID: <SELLER_SESSION_ID>" \
+    -d '{"name":"Raft Test Item","category":1,"keywords":["raft","test"],"condition":"new","price":50.0,"quantity":5}' | python3 -m json.tool
+# Note the item_id returned, e.g. [1, 1]
+
+# Now read that item from DIFFERENT buyer server replicas (each routes to
+# different product DB replicas via its StubPool):
+
+# Via buyer server on VM2:
+curl -s "http://<VM2_EXT>:5004/buyer/items?keywords=raft" \
+    -H "X-Session-ID: <BUYER_SESSION_ID>" | python3 -m json.tool
+
+# Via buyer server on VM3:
+curl -s "http://<VM3_EXT>:5004/buyer/items?keywords=raft" \
+    -H "X-Session-ID: <BUYER_SESSION_ID>" | python3 -m json.tool
+
+# Via buyer server on VM4:
+curl -s "http://<VM4_EXT>:5004/buyer/items?keywords=raft" \
+    -H "X-Session-ID: <BUYER_SESSION_ID>" | python3 -m json.tool
+
+# All three should return the same item — proves Raft replication.
+
+================================================================================
+DEMO 6: Frontend Failover (Seller + Buyer Server Crash)
+================================================================================
+# GOAL: Kill one seller server and one buyer server. Clients fail over to
+# the remaining replicas transparently.
+
+# Step 1: Show which seller servers are alive:
+curl -s -X POST http://<VM3_EXT>:5013/seller/login \
+    -H "Content-Type: application/json" \
+    -d '{"username":"demo_seller","password":"pass123"}' | python3 -m json.tool
+# Should succeed.
+
+# Step 2: Kill seller server replica 3 on VM3 (port 5013):
+gcloud compute ssh seller-server --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='pkill -f "seller_server.*5013"'
+
+# Step 3: Try the killed server — should fail:
+curl -s --connect-timeout 3 -X POST http://<VM3_EXT>:5013/seller/login \
+    -H "Content-Type: application/json" \
+    -d '{"username":"demo_seller","password":"pass123"}'
+# Should time out or connection refused.
+
+# Step 4: Other seller servers still work (failover):
+curl -s -X POST http://<VM1_EXT>:5003/seller/login \
+    -H "Content-Type: application/json" \
+    -d '{"username":"demo_seller","password":"pass123"}' | python3 -m json.tool
+# Should succeed — proves frontend failover.
+
+# Step 5: Same test for buyer server — kill replica 3 on VM4 (port 5014):
+gcloud compute ssh buyer-server --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='pkill -f "buyer_server.*5014"'
+
+# Other buyer servers still work:
+curl -s -X POST http://<VM2_EXT>:5004/buyer/login \
+    -H "Content-Type: application/json" \
+    -d '{"username":"demo_buyer","password":"pass123"}' | python3 -m json.tool
+
+# Step 6: Restart the killed replicas:
+gcloud compute ssh seller-server --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='nohup ~/Marketplace/venv/bin/python ~/Marketplace/seller_server.py \
+        --port 5013 \
+        --customer-db-addrs "<VM1_INT>:50051,<VM1_INT>:50061,<VM2_INT>:50051,<VM2_INT>:50061,<VM3_INT>:50051" \
+        --product-db-addrs "<VM1_INT>:50052,<VM2_INT>:50052,<VM2_INT>:50062,<VM3_INT>:50052,<VM4_INT>:50052" \
+        </dev/null >> ~/seller_3.log 2>&1 &'
+
+gcloud compute ssh buyer-server --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='nohup ~/Marketplace/venv/bin/python ~/Marketplace/buyer_server.py \
+        --port 5014 \
+        --customer-db-addrs "<VM1_INT>:50051,<VM1_INT>:50061,<VM2_INT>:50051,<VM2_INT>:50061,<VM3_INT>:50051" \
+        --product-db-addrs "<VM1_INT>:50052,<VM2_INT>:50052,<VM2_INT>:50062,<VM3_INT>:50052,<VM4_INT>:50052" \
+        --financial-host <VM1_INT> --financial-port 8000 \
+        </dev/null >> ~/buyer_3.log 2>&1 &'
+
+================================================================================
+DEMO 7: Product DB Follower Failure (Raft)
+================================================================================
+# GOAL: Kill a non-leader Raft replica. Reads and writes still work.
+
+# Step 1: Kill product DB on VM4 (likely a follower):
+gcloud compute ssh buyer-server --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='pkill -f "product_database_replicated"'
+
+# Step 2: Writes still work (Raft has 4/5 nodes = still has majority):
+curl -s -X POST http://<VM1_EXT>:5003/seller/items \
+    -H "Content-Type: application/json" \
+    -H "X-Session-ID: <SELLER_SESSION_ID>" \
+    -d '{"name":"After Follower Kill","category":2,"keywords":["failover"],"condition":"new","price":25.0,"quantity":3}' | python3 -m json.tool
+# Should succeed.
+
+# Step 3: Reads still work:
+curl -s "http://<VM2_EXT>:5004/buyer/items?keywords=failover" \
+    -H "X-Session-ID: <BUYER_SESSION_ID>" | python3 -m json.tool
+# Should return the item.
+
+# Step 4: Restart the killed follower:
+gcloud compute ssh buyer-server --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='nohup ~/Marketplace/venv/bin/python ~/Marketplace/product_database_replicated.py \
+        --raft-addr "<VM4_INT>:4321" \
+        --raft-partners "<VM1_INT>:4321,<VM2_INT>:4321,<VM2_INT>:4322,<VM3_INT>:4321" \
+        --grpc-port 50052 \
+        </dev/null >> ~/prod_db_4.log 2>&1 &'
+
+# Step 5: After restart, the node catches up via Raft log replication.
+# Verify it has the data (query via buyer server on VM4):
+sleep 5
+curl -s "http://<VM4_EXT>:5004/buyer/items?keywords=failover" \
+    -H "X-Session-ID: <BUYER_SESSION_ID>" | python3 -m json.tool
+# Should return the same item — proves Raft catch-up works.
+
+================================================================================
+DEMO 8: Product DB Leader Failure (Raft Leader Election)
+================================================================================
+# GOAL: Kill the Raft leader. A new leader is elected. Writes resume.
+
+# Step 1: Check logs to identify current Raft leader.
+# PySyncObj logs leader changes. Check any product DB log:
+gcloud compute ssh customer-db --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='grep -i "leader" ~/prod_db_0.log | tail -5'
+
+# Step 2: Kill the leader process. If leader is on VM1:
+gcloud compute ssh customer-db --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='pkill -f "product_database_replicated"'
+
+# Step 3: Wait a few seconds for Raft re-election (0.4-1.4s configured timeout):
+sleep 3
+
+# Step 4: Writes should work again (new leader elected):
+curl -s -X POST http://<VM2_EXT>:5003/seller/items \
+    -H "Content-Type: application/json" \
+    -H "X-Session-ID: <SELLER_SESSION_ID>" \
+    -d '{"name":"After Leader Kill","category":3,"keywords":["leader","election"],"condition":"used","price":15.0,"quantity":7}' | python3 -m json.tool
+# Should succeed (might be slightly slower on first write after election).
+
+# Step 5: Confirm new leader in logs:
+gcloud compute ssh product-db --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='grep -i "leader" ~/prod_db_1.log | tail -5'
+
+# Step 6: Restart the killed node:
+gcloud compute ssh customer-db --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='nohup ~/Marketplace/venv/bin/python ~/Marketplace/product_database_replicated.py \
+        --raft-addr "<VM1_INT>:4321" \
+        --raft-partners "<VM2_INT>:4321,<VM2_INT>:4322,<VM3_INT>:4321,<VM4_INT>:4321" \
+        --grpc-port 50052 \
+        </dev/null >> ~/prod_db_0.log 2>&1 &'
+
+================================================================================
+DEMO 9: Client-Side Failover (Interactive Client)
+================================================================================
+# GOAL: Show the seller/buyer CLI client failing over between servers.
+
+# Step 1: Start seller client with all 4 server addresses:
+cd Marketplace
+.venv/bin/python seller_client.py \
+    --servers "<VM1_EXT>:5003,<VM2_EXT>:5003,<VM3_EXT>:5003,<VM3_EXT>:5013"
+
+# Step 2: Log in and do some operations.
+
+# Step 3: While client is running, kill the server it's connected to:
+#   (In another terminal)
+gcloud compute ssh customer-db --zone=us-central1-a --project=ecommerce-pa2-2026 \
+    --command='pkill -f "seller_server.*5003"'
+
+# Step 4: In the client, perform another operation.
+#   Client will print "Server <IP>:5003 unreachable, trying next..."
+#   and then succeed on the next replica automatically.
+
+# Same works for buyer client:
+.venv/bin/python buyer_client.py \
+    --servers "<VM2_EXT>:5004,<VM3_EXT>:5004,<VM4_EXT>:5004,<VM4_EXT>:5014"
+
+================================================================================
+DEMO 10: Inspect Database State
+================================================================================
+
+# --- Customer DB (SQLite files on each VM) ---
+
+# Show all users across replicas:
+for INFO in "customer-db:customer_data_node0.db" "product-db:customer_data_node2.db" "seller-server:customer_data_node4.db"; do
+    VM=$(echo $INFO | cut -d: -f1)
+    DB=$(echo $INFO | cut -d: -f2)
+    echo ""
+    echo "=== $VM ($DB) — Users ==="
+    gcloud compute ssh $VM --zone=us-central1-a --project=ecommerce-pa2-2026 \
+        --command="sqlite3 ~/$DB \"SELECT user_id, username, name, user_type FROM users;\""
+done
+
+# Show active sessions:
+for INFO in "customer-db:customer_data_node0.db" "product-db:customer_data_node2.db" "seller-server:customer_data_node4.db"; do
+    VM=$(echo $INFO | cut -d: -f1)
+    DB=$(echo $INFO | cut -d: -f2)
+    echo ""
+    echo "=== $VM ($DB) — Sessions ==="
+    gcloud compute ssh $VM --zone=us-central1-a --project=ecommerce-pa2-2026 \
+        --command="sqlite3 ~/$DB \"SELECT substr(session_id,1,8)||'...' as sid, user_id, user_type, datetime(last_activity,'unixepoch') as last_active FROM sessions;\""
+done
+
+# --- Product DB (in-memory, inspect via gRPC/REST) ---
+
+# Search all items (no filter = everything):
+curl -s "http://<VM2_EXT>:5004/buyer/items" \
+    -H "X-Session-ID: <BUYER_SESSION_ID>" | python3 -m json.tool
+
+# Get a specific item:
+curl -s "http://<VM2_EXT>:5004/buyer/items/0/1" \
+    -H "X-Session-ID: <BUYER_SESSION_ID>" | python3 -m json.tool
+
+# Get seller rating:
+curl -s "http://<VM2_EXT>:5004/buyer/seller/1/rating" \
+    -H "X-Session-ID: <BUYER_SESSION_ID>" | python3 -m json.tool
+
+# Get buyer's purchase history:
+curl -s "http://<VM2_EXT>:5004/buyer/purchases" \
+    -H "X-Session-ID: <BUYER_SESSION_ID>" | python3 -m json.tool
+
+# Get buyer's saved cart:
+curl -s "http://<VM2_EXT>:5004/buyer/cart" \
+    -H "X-Session-ID: <BUYER_SESSION_ID>" | python3 -m json.tool
+
+================================================================================
+DEMO QUICK REFERENCE — What to show for each PA3 requirement
+================================================================================
+
+  Requirement                         Demo Section
+  ------------------------------------  ------------
+  Atomic broadcast protocol             Demo 4 (replicated writes + DB inspect)
+  Customer DB replication (5 nodes)     Demo 4 (same rows on all nodes)
+  Product DB replication / Raft (5)     Demo 5 (item visible on all replicas)
+  Seller server replication (4)         Demo 6 (kill one, others work)
+  Buyer server replication (4)          Demo 6 (kill one, others work)
+  Client-side failover                  Demo 9 (client retries next server)
+  No-failure scenario                   Demos 2 + 3 (normal operations)
+  Frontend failure scenario             Demo 6
+  Follower failure scenario             Demo 7
+  Leader failure scenario               Demo 8
+  Database inspection                   Demo 4 (SQLite) + Demo 10
+
 ================================================================================
